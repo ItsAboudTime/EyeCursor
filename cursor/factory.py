@@ -6,7 +6,7 @@ from cursor.config import DEFAULT_SPEED_PX_PER_SEC, DEFAULT_FRAME_RATE
 
 _PLATFORM_IMPLS: dict[str, tuple[str, str]] = {
     "win": ("cursor.windows", "WindowsCursor"),
-    # "darwin": ("cursor.macos", "MacOSCursor"),
+    "darwin": ("cursor.macos", "MacOSCursor"),
     # "linux": ("cursor.linux", "LinuxCursor"),
 }
 

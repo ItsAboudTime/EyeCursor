@@ -25,10 +25,7 @@ def parse_coords(raw: str):
     y = int(float(parts[1]))
     return x, y
 
-if not sys.platform.startswith("win"):
-    sys.exit("This script is for Windows only.")
-
-# Create a cursor instance (WindowsCursor under the hood)
+# Create a cursor instance
 cur = create_cursor()
 
 minx, miny, maxx, maxy = cur.get_virtual_bounds()
