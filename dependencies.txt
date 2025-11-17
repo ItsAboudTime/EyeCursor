@@ -1,0 +1,5 @@
+pip==25.3
+pyobjc-core==11.1
+pyobjc-framework-Cocoa==11.1
+pyobjc-framework-Quartz==11.1
+setuptools==58.0.4
