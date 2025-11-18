@@ -25,12 +25,24 @@ cd Graduation-Project
   .venv\Scripts\Activate.ps1
   ```
 
-### 3. Install Dependencies
+### 3. Install Python Dependencies
 ```bash
 pip install -r dependencies.txt
 ```
 
-### 4. Run the Project
+### 4. Additional Requirements for Linux
+If you are running on Linux, you must install the following system packages:
+
+- `xdotool`
+- `xrandr`
+
+Install them using your distribution's package manager. For example, on Ubuntu/Debian:
+```bash
+sudo apt-get update
+sudo apt-get install xdotool x11-xserver-utils
+```
+
+### 5. Run the Project
 ```bash
 python main.py
 ```
