@@ -40,24 +40,45 @@ def main():
     print("Cursor Move (CLI)")
     print(f"Virtual screen bounds: x [{minx}..{maxx}], y [{miny}..{maxy}]")
     print(f"Speed: {cur.speed_px_per_sec} px/s")
-    print("Enter coordinates as 'x y' or 'x,y' (type 'q' to quit).\n")
+    print("Enter coordinates as 'x y' or 'x,y' (type 'q' to quit).")
+    print("Commands: 'left' for left click, 'right' for right click, 'scroll <delta>' for scrolling.\n")
 
     while True:
         try:
-            raw = input("Go to (x y) > ")
+            raw = input("Command > ")
         except KeyboardInterrupt:
             print("\nBye.")
             break
 
         try:
-            result = parse_coords(raw)
-            if result == "quit":
+            if raw.lower() == "q":
                 print("Bye.")
                 break
 
+            if raw.lower() == "left":
+                print("Performing left click...")
+                cur.left_click()
+                continue
+
+            if raw.lower() == "right":
+                print("Performing right click...")
+                cur.right_click()
+                continue
+
+            if raw.lower().startswith("scroll"):
+                try:
+                    parts = raw.split()
+                    delta = int(parts[1])
+                    print(f"Scrolling {'up' if delta > 0 else 'down'} by {delta}...")
+                    cur.scroll_with_speed(delta)
+                except (IndexError, ValueError):
+                    print("Invalid scroll command. Use 'scroll <delta>' where delta is an integer.")
+                continue
+
+            result = parse_coords(raw)
             x, y = result
             print(f"Moving to ({x}, {y}) ...")
-            cur.move_to(x, y)
+            cur.move_to_with_speed(x, y)
         except ValueError as e:
             print(e)
 

@@ -26,3 +26,14 @@ class LinuxCursor(Cursor):
                         width, height = map(int, res.split('x'))
                         return 0, 0, width - 1, height - 1
         raise RuntimeError('Could not determine screen size')
+
+    def left_click(self) -> None:
+        subprocess.call(['xdotool', 'click', '1'])
+
+    def right_click(self) -> None:
+        subprocess.call(['xdotool', 'click', '3'])
+
+    def scroll(self, delta: int) -> None:
+        button = '4' if delta > 0 else '5'
+        for _ in range(abs(delta)):
+            subprocess.call(['xdotool', 'click', button])

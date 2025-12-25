@@ -44,7 +44,7 @@ sudo apt-get install xdotool x11-xserver-utils
 
 ### 5. Run Examples
 
-- CLI cursor move (type coordinates):
+- CLI cursor move, click, and scroll:
 ```bash
 python examples/cursor-control.py
 ```
@@ -53,5 +53,3 @@ python examples/cursor-control.py
 ```bash
 python examples/head-cursor.py
 ```
-
-If you run `python main.py`, you'll see a message pointing to these examples.

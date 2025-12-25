@@ -43,7 +43,7 @@ def main() -> int:
             sx, sy = pos
             sx = max(minx, min(maxx, sx + minx))
             sy = max(miny, min(maxy, sy + miny))
-            cur.set_pos(sx, sy)
+            cur.move_to_with_speed(sx, sy)
 
         import cv2
         cv2.putText(
