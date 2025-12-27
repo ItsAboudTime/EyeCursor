@@ -25,7 +25,7 @@ def detect_wink(landmarks, left_eye_indices, right_eye_indices):
 
     return left_ear, right_ear
 
-def main() -> int:
+def main():
     if not sys.platform.startswith("linux"):
         print("This demo currently supports Linux only.")
         return 1
@@ -81,4 +81,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

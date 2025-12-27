@@ -96,7 +96,6 @@ class Cursor(ABC):
             self.set_pos(target_x, target_y)
             return
 
-        # Uses the new variable name: move_px_per_sec
         duration = dist / max(1e-6, self.move_px_per_sec)
         steps = max(1, int(self.frame_rate * duration))
 
@@ -114,7 +113,45 @@ class Cursor(ABC):
                 time.sleep(sleep_time)
 
         self.set_pos(target_x, target_y)
+    
+    def step_towards(self, target_x: int, target_y: int) -> None:
+        """
+        Non-blocking: Moves the cursor one 'step' towards the target.
+        Automatically calculates the time delta (dt) since the last call.
+        """
+        import time
+        import math
+        
+        now = time.perf_counter()
+        
+        if not hasattr(self, "_last_step_time") or self._last_step_time is None:
+            self._last_step_time = now
+            return 
 
+        dt = now - self._last_step_time
+
+        min_interval = 1.0 / max(1, self.frame_rate)
+        if dt < min_interval:
+            return
+
+        self._last_step_time = now
+
+        cx, cy = self.get_pos()
+        
+        dx = target_x - cx
+        dy = target_y - cy
+        dist = math.hypot(dx, dy)
+
+        step_size = self.move_px_per_sec * dt
+
+        if dist <= step_size:
+            self.set_pos(int(target_x), int(target_y))
+        else:
+            ratio = step_size / dist
+            nx = cx + (dx * ratio)
+            ny = cy + (dy * ratio)
+            self.set_pos(int(nx), int(ny))
+        
     def scroll_with_speed(self, delta: int) -> None:
         """
         Scroll the mouse wheel with the configured scroll speed.
@@ -123,15 +160,9 @@ class Cursor(ABC):
         if delta == 0:
             return
 
-        # 1. Calculate total time needed using the new variable name: scroll_units_per_sec
         total_duration = abs(delta) / max(1e-6, self.scroll_units_per_sec)
-        
-        # 2. Calculate number of frames (steps)
         steps = max(1, int(self.frame_rate * total_duration))
-        
-        # 3. Calculate how much to scroll per step (e.g. 0.2 units)
         per_step_scroll = delta / steps
-        
         accumulator = 0.0
         start_time = time.perf_counter()
 
@@ -140,15 +171,12 @@ class Cursor(ABC):
             accumulator += per_step_scroll
             
             # Check if we have enough in the bucket to actually scroll (>= 1 or <= -1)
-            # We use int() to truncate (e.g. 1.9 -> 1, -1.9 -> -1)
             scroll_amount = int(accumulator)
             
             if scroll_amount != 0:
                 self.scroll(scroll_amount)
-                # Remove the part we just scrolled from the bucket
                 accumulator -= scroll_amount
 
-            # 4. Standard timing logic
             target_elapsed = (i / steps) * total_duration
             now = time.perf_counter()
             sleep_time = (start_time + target_elapsed) - now
@@ -156,8 +184,7 @@ class Cursor(ABC):
             if sleep_time > 0:
                 time.sleep(sleep_time)
         
-        # 5. Final cleanup: Ensure we scroll any remaining amount
-        # (Handles cases where rounding errors left 1 tick behind)
+        # Handles cases where rounding errors left 1 tick behind
         remaining = int(accumulator + 0.5) if delta > 0 else int(accumulator - 0.5)
         if remaining != 0:
             self.scroll(remaining)
