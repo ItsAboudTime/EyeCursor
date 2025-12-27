@@ -46,7 +46,12 @@ def run_cli_loop(cur, stop_queue):
     while True:
         try:
             # This blocks, so it must live in a thread
-            raw = input("Command > ")
+            sys.stdout.write("Command > ")
+            sys.stdout.flush()
+            raw = sys.stdin.readline()
+            if not raw:
+                break
+            raw = raw.strip()
         except KeyboardInterrupt:
             print("\nBye.")
             stop_queue.put("QUIT")
