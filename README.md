@@ -51,7 +51,7 @@ python -m examples.cursor_control
 
 - Linux head-controlled cursor (webcam required):
 ```bash
-python examples/head_cursor.py
+python -m examples.head_cursor
 ```
 
 - Linux wink-controlled cursor (webcam required):

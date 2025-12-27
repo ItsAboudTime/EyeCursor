@@ -1,7 +1,7 @@
 import sys
 import tkinter as tk
-from tkinter import messagebox
-from typing import Optional, Any
+from tkinter import ttk, messagebox
+from typing import Any
 
 from cursor.constants import (
     DEFAULT_MOVE_PX_PER_SEC,
@@ -11,7 +11,7 @@ from cursor.constants import (
 
 class SettingsWindow:
     WIDTH = 400
-    HEIGHT = 320
+    HEIGHT = 340
 
     def __init__(self, master, cursor: Any = None):
         """
@@ -24,32 +24,52 @@ class SettingsWindow:
         master.title("Cursor Configuration")
         master.resizable(False, False)
 
+        style = ttk.Style()
+        try:
+             style.theme_use('clam') 
+        except tk.TclError:
+             pass 
+
+        style.configure("Bold.TButton", font=("TkDefaultFont", 11, "bold"))
+        style.configure(
+            "Modern.TEntry",
+            padding=10,
+            relief="flat",
+            fieldbackground="#F0F0F0",
+            borderwidth=0,
+        )
+        style.map("Modern.TEntry",
+            fieldbackground=[("focus", "white")],
+            lightcolor=[("focus", "#4CAF50")], 
+            bordercolor=[("focus", "#4CAF50")]
+        )
+
+        container = ttk.Frame(master, padding=20)
+        container.pack(fill="both", expand=True)
+
         # --- Move Speed ---
-        tk.Label(master, text="Move Speed (px/s):", font=("Arial", 12)).pack(pady=(15, 5))
+        ttk.Label(container, text="Move Speed (px/s):", font=("TkDefaultFont", 10)).pack(anchor="w", pady=(0, 5))
         self.move_speed_var = tk.StringVar(value=str(DEFAULT_MOVE_PX_PER_SEC))
-        tk.Entry(master, textvariable=self.move_speed_var, font=("Arial", 12), width=20).pack()
+        ttk.Entry(container, textvariable=self.move_speed_var, font=("TkDefaultFont", 11), style="Modern.TEntry").pack(fill="x", pady=(0, 15))
 
         # --- Frame Rate ---
-        tk.Label(master, text="Frame Rate (fps):", font=("Arial", 12)).pack(pady=(15, 5))
+        ttk.Label(container, text="Frame Rate (fps):", font=("TkDefaultFont", 10)).pack(anchor="w", pady=(0, 5))
         self.frame_rate_var = tk.StringVar(value=str(DEFAULT_FRAME_RATE))
-        tk.Entry(master, textvariable=self.frame_rate_var, font=("Arial", 12), width=20).pack()
+        ttk.Entry(container, textvariable=self.frame_rate_var, font=("TkDefaultFont", 11), style="Modern.TEntry").pack(fill="x", pady=(0, 15))
 
         # --- Scroll Speed ---
-        tk.Label(master, text="Scroll Speed (units/s):", font=("Arial", 12)).pack(pady=(15, 5))
+        ttk.Label(container, text="Scroll Speed (units/s):", font=("TkDefaultFont", 10)).pack(anchor="w", pady=(0, 5))
         self.scroll_units_var = tk.StringVar(value=str(DEFAULT_SCROLL_UNITS_PER_SEC))
-        tk.Entry(master, textvariable=self.scroll_units_var, font=("Arial", 12), width=20).pack()
+        ttk.Entry(container, textvariable=self.scroll_units_var, font=("TkDefaultFont", 11), style="Modern.TEntry").pack(fill="x", pady=(0, 15))
 
         # --- Save Button ---
-        tk.Button(
-            master,
+        ttk.Button(
+            container,
             text="Save",
-            font=("Arial", 12, "bold"),
-            bg="#4CAF50",
-            fg="white",
+            style="Bold.TButton",
             command=self.save_config,
-            padx=10,
-            pady=5
-        ).pack(pady=25)
+            cursor="hand2"
+        ).pack(fill="both", pady=(10, 0))
 
     @classmethod
     def create_app(cls, cursor: Any = None) -> tk.Tk:
@@ -58,8 +78,8 @@ class SettingsWindow:
         and initializes the Application. Returns the root object.
         """
         root = tk.Tk()
+        root.configure(bg="#ffffff") 
         cls._center_window(root, cls.WIDTH, cls.HEIGHT)
-        # Initialize the class with the new root
         cls(root, cursor=cursor)
         return root
 
