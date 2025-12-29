@@ -58,3 +58,8 @@ python -m examples.head_cursor
 ```bash
 python -m examples.wink_cursor
 ```
+
+### 5. Run the Main Application
+```bash
+python main.py
+```
