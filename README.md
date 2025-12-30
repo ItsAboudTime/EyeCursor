@@ -1,4 +1,4 @@
-# Graduation-Project
+# EyeCursor
 
 ## Setup Instructions
 
