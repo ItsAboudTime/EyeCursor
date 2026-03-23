@@ -15,13 +15,20 @@ class HeadPoseTracker:
     Provides a simple API to stream cursor positions mapped from head yaw/pitch.
     """
 
-    def __init__(self, yaw_span: float = 20.0, pitch_span: float = 10.0, smooth_len: int = 8) -> None:
+    def __init__(
+        self,
+        yaw_span: float = 20.0,
+        pitch_span: float = 10.0,
+        smooth_len: int = 8,
+        camera_index: int = 0,
+    ) -> None:
         if not sys.platform.startswith("linux"):
             raise RuntimeError("HeadPoseTracker currently supports Linux only.")
 
         self.yaw_span = float(yaw_span)
         self.pitch_span = float(pitch_span)
         self.smooth_len = int(smooth_len)
+        self.camera_index = int(camera_index)
 
         self._mp_face_mesh = mp.solutions.face_mesh
         self._face_mesh = self._mp_face_mesh.FaceMesh(
@@ -48,9 +55,10 @@ class HeadPoseTracker:
         }
 
     def start(self) -> None:
-        self._cap = cv2.VideoCapture(0)
-        if not self._cap.isOpened():
-            raise RuntimeError("Could not open webcam (index 0)")
+        cap = cv2.VideoCapture(self.camera_index)
+        if not cap.isOpened():
+            raise RuntimeError(f"Could not open webcam (index {self.camera_index})")
+        self._cap = cap
 
     def stop(self) -> None:
         if self._cap is not None:
