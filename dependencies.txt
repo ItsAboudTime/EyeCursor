@@ -1,3 +1,7 @@
+l2cs
+torch
+torchvision
+
 # macOS-only
 pyobjc-core==11.1; sys_platform == "darwin"
 pyobjc-framework-Cocoa==11.1; sys_platform == "darwin"
@@ -11,6 +15,3 @@ scipy; sys_platform == "linux"
 pyautogui; sys_platform == "linux"
 keyboard; sys_platform == "linux"
 eyeGestures; sys_platform == "linux"
-l2cs; sys_platform == "linux"
-torch; sys_platform == "linux"
-torchvision; sys_platform == "linux"
