@@ -1,6 +1,8 @@
-l2cs
+git+https://github.com/edavalosanaya/L2CS-Net.git@main
 torch
 torchvision
+numpy>=1.24
+opencv-python>=4.8
 
 # macOS-only
 pyobjc-core==11.1; sys_platform == "darwin"
@@ -8,9 +10,7 @@ pyobjc-framework-Cocoa==11.1; sys_platform == "darwin"
 pyobjc-framework-Quartz==11.1; sys_platform == "darwin"
 
 # Linux-only
-opencv-python>=4.8; sys_platform == "linux"
 mediapipe>=0.10; sys_platform == "linux"
-numpy>=1.24; sys_platform == "linux"
 scipy; sys_platform == "linux"
 pyautogui; sys_platform == "linux"
 keyboard; sys_platform == "linux"
