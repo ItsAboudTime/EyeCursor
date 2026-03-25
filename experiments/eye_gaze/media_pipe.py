@@ -1,5 +1,5 @@
 """
-Linux-only eye gaze demo.
+Eye gaze demo using MediaPipe Tasks.
 
 Tracks iris landmarks from webcam input, maps gaze to screen coordinates,
 and visualizes a streamer-style gaze bubble on the camera preview.
@@ -15,25 +15,23 @@ from collections import deque
 from typing import Optional, Tuple
 
 import cv2
-import mediapipe as mp
 import numpy as np
 
 from cursor import create_cursor
+from head_track.tasks_face_landmarks import FaceLandmarksProvider
 
 
 class EyeGazeTracker:
-	def __init__(self, camera_index: int = 0, smooth_len: int = 8) -> None:
+	def __init__(
+		self,
+		camera_index: int = 0,
+		smooth_len: int = 8,
+		face_model_path: Optional[str] = None,
+	) -> None:
 		self.camera_index = int(camera_index)
 		self.smooth_len = int(smooth_len)
 
-		self._mp_face_mesh = mp.solutions.face_mesh
-		self._face_mesh = self._mp_face_mesh.FaceMesh(
-			static_image_mode=False,
-			max_num_faces=1,
-			refine_landmarks=True,
-			min_detection_confidence=0.5,
-			min_tracking_confidence=0.5,
-		)
+		self._landmarks_provider = FaceLandmarksProvider(face_model_path=face_model_path)
 
 		self._cap: Optional[cv2.VideoCapture] = None
 		self._smoothed_xy: deque[Tuple[float, float]] = deque(maxlen=self.smooth_len)
@@ -62,6 +60,7 @@ class EyeGazeTracker:
 		if self._cap is not None:
 			self._cap.release()
 			self._cap = None
+		self._landmarks_provider.release()
 		cv2.destroyAllWindows()
 
 	def calibrate_center(self, h_ratio: float, v_ratio: float) -> None:
@@ -99,12 +98,9 @@ class EyeGazeTracker:
 
 		h, w, _ = frame.shape
 		rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-		results = self._face_mesh.process(rgb)
-
-		if not results.multi_face_landmarks:
+		lm = self._landmarks_provider.get_primary_face_landmarks(rgb)
+		if lm is None:
 			return None, frame, None
-
-		lm = results.multi_face_landmarks[0].landmark
 
 		rh, rv = self._compute_eye_ratio(self._EYE["right"], lm, w, h)
 		lh, lv = self._compute_eye_ratio(self._EYE["left"], lm, w, h)
