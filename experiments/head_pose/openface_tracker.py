@@ -21,7 +21,6 @@ import io
 import math
 import socket
 import struct
-import sys
 from collections import deque
 from typing import Dict, Optional, Tuple
 
@@ -54,9 +53,6 @@ class OpenFaceTracker:
         timeout_s: float = 5.0,
         debug: bool = False,
     ) -> None:
-        if not sys.platform.startswith("linux"):
-            raise RuntimeError("OpenFaceTracker currently supports Linux only.")
-
         self.host = host
         self.port = port
         self.yaw_span = float(yaw_span)

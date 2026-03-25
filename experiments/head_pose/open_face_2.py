@@ -43,9 +43,6 @@ class OpenFaceHeadPoseTracker:
         pitch_span: float = 10.0,
         smooth_len: int = 8,
     ) -> None:
-        if not sys.platform.startswith("linux"):
-            raise RuntimeError("OpenFaceHeadPoseTracker currently supports Linux only.")
-
         self.feature_extraction_path = feature_extraction_path
         self.camera_index = int(camera_index)
         self.yaw_span = float(max(1e-3, yaw_span))
@@ -287,10 +284,6 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main():
-    if not sys.platform.startswith("linux"):
-        print("This demo currently supports Linux only.")
-        return 1
-
     args = _parse_args()
 
     cur = create_cursor()

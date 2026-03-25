@@ -94,10 +94,6 @@ def run_cli_loop(cur, stop_queue):
 
 
 def run_tracker_loop(cur, stop_event, stop_queue):
-    if not sys.platform.startswith("linux"):
-        print("Stereo head tracking currently supports Linux only.")
-        return
-
     minx, miny, maxx, maxy = cur.get_virtual_bounds()
     screen_w = maxx - minx + 1
     screen_h = maxy - miny + 1

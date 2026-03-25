@@ -34,9 +34,6 @@ def _create_eyegestures_engine() -> Any:
 
 class EyeGesturesTracker:
 	def __init__(self, camera_index: int = 0, smooth_len: int = 6, context: str = "linux_eye_cursor") -> None:
-		if not sys.platform.startswith("linux"):
-			raise RuntimeError("EyeGestures tracker currently supports Linux only.")
-
 		self.camera_index = int(camera_index)
 		self.context = context
 		self.calibrating = True
@@ -87,10 +84,6 @@ class EyeGesturesTracker:
 
 
 def run_demo() -> int:
-	if not sys.platform.startswith("linux"):
-		print("This demo currently supports Linux only.")
-		return 1
-
 	try:
 		cur = create_cursor()
 	except Exception as exc:

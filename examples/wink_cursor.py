@@ -11,10 +11,6 @@ import cv2
 from head_track.perception_pipeline import FaceAnalysisPipeline
 
 def main():
-    if not (sys.platform.startswith("linux") or sys.platform == "darwin"):
-        print("This demo currently supports Linux and macOS only.")
-        return 1
-
     cur = create_cursor()
     perception_pipeline = FaceAnalysisPipeline(yaw_span=20.0, pitch_span=10.0, smooth_len=8)
 

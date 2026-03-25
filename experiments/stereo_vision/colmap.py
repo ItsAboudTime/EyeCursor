@@ -359,10 +359,6 @@ def _run_headpose_mode(cur, args) -> int:
 
 
 def main() -> int:
-	if not (sys.platform.startswith("linux") or sys.platform == "darwin"):
-		print("This demo currently supports Linux and macOS only.")
-		return 1
-
 	from cursor import create_cursor
 
 	parser = _build_parser()

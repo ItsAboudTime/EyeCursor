@@ -109,10 +109,6 @@ def run_tracking_loop(cur, tracker, stop_queue):
 
 
 def main():
-    if not sys.platform.startswith("linux"):
-        print("This demo currently supports Linux only.")
-        return 1
-
     cur = create_cursor()
     tracker = OpenFaceTracker(
         host="localhost",

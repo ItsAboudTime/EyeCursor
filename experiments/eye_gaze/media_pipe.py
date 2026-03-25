@@ -23,9 +23,6 @@ from cursor import create_cursor
 
 class EyeGazeTracker:
 	def __init__(self, camera_index: int = 0, smooth_len: int = 8) -> None:
-		if not sys.platform.startswith("linux"):
-			raise RuntimeError("EyeGazeTracker currently supports Linux only.")
-
 		self.camera_index = int(camera_index)
 		self.smooth_len = int(smooth_len)
 
@@ -129,10 +126,6 @@ class EyeGazeTracker:
 
 
 def run_demo() -> int:
-	if not sys.platform.startswith("linux"):
-		print("This demo currently supports Linux only.")
-		return 1
-
 	cur = create_cursor()
 	tracker = EyeGazeTracker(camera_index=0, smooth_len=8)
 
