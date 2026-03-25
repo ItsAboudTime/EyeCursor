@@ -25,9 +25,9 @@ cd Graduation-Project
   venv\Scripts\Activate.ps1
   ```
 
-### 3. Install Python Dependencies
+### 3. Install Python Requirements
 ```bash
-pip install -r dependencies.txt
+pip install -r requirements.txt
 ```
 
 ### 4. Additional Requirements for Linux
