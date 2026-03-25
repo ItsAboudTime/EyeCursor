@@ -1,5 +1,5 @@
 """
-Linux-only demo: control the mouse cursor with winks.
+Demo: control the mouse cursor with winks.
 
 Requires webcam, OpenCV, and MediaPipe. Press 'q' to quit.
 """
@@ -8,37 +8,18 @@ import sys
 
 from cursor import create_cursor
 import cv2
-import mediapipe as mp
-
-def detect_wink(landmarks, left_eye_indices, right_eye_indices):
-    def eye_aspect_ratio(eye):
-        vertical_1 = ((eye[1][0] - eye[5][0])**2 + (eye[1][1] - eye[5][1])**2)**0.5
-        vertical_2 = ((eye[2][0] - eye[4][0])**2 + (eye[2][1] - eye[4][1])**2)**0.5
-        horizontal = ((eye[0][0] - eye[3][0])**2 + (eye[0][1] - eye[3][1])**2)**0.5
-        return (vertical_1 + vertical_2) / (2.0 * horizontal)
-
-    left_eye = [landmarks[i] for i in left_eye_indices]
-    right_eye = [landmarks[i] for i in right_eye_indices]
-
-    left_ear = eye_aspect_ratio(left_eye)
-    right_ear = eye_aspect_ratio(right_eye)
-
-    return left_ear, right_ear
+from head_track.perception_pipeline import FaceAnalysisPipeline
 
 def main():
-    if not sys.platform.startswith("linux"):
-        print("This demo currently supports Linux only.")
+    if not (sys.platform.startswith("linux") or sys.platform == "darwin"):
+        print("This demo currently supports Linux and macOS only.")
         return 1
 
     cur = create_cursor()
-    mp_face_mesh = mp.solutions.face_mesh
-    face_mesh = mp_face_mesh.FaceMesh(refine_landmarks=True)
+    perception_pipeline = FaceAnalysisPipeline(yaw_span=20.0, pitch_span=10.0, smooth_len=8)
 
     cap = cv2.VideoCapture(0)
-    print("Wink-Cursor demo running (Linux). Press 'q' to quit.")
-
-    LEFT_EYE_INDICES = [362, 385, 387, 263, 373, 380]
-    RIGHT_EYE_INDICES = [33, 160, 158, 133, 153, 144]
+    print("Wink-Cursor demo running. Press 'q' to quit.")
 
     while cap.isOpened():
         ret, frame = cap.read()
@@ -47,17 +28,20 @@ def main():
 
         frame = cv2.flip(frame, 1)
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = face_mesh.process(rgb_frame)
+        perception = perception_pipeline.analyze(
+            rgb_frame=rgb_frame,
+            frame_width=frame.shape[1],
+            frame_height=frame.shape[0],
+            screen_width=frame.shape[1],
+            screen_height=frame.shape[0],
+        )
+        if perception is not None:
+            wink_direction = perception.wink_direction
 
-        if results.multi_face_landmarks:
-            for face_landmarks in results.multi_face_landmarks:
-                landmarks = [(lm.x, lm.y) for lm in face_landmarks.landmark]
-                left_ear, right_ear = detect_wink(landmarks, LEFT_EYE_INDICES, RIGHT_EYE_INDICES)
-
-                if left_ear < 0.2 and right_ear > 0.3:  # Left wink detected
-                    cur.right_click()
-                elif right_ear < 0.2 and left_ear > 0.3:  # Right wink detected
-                    cur.left_click()
+            if wink_direction == "left":  # Left wink detected
+                cur.right_click()
+            elif wink_direction == "right":  # Right wink detected
+                cur.left_click()
 
         cv2.putText(
             frame,
@@ -69,13 +53,13 @@ def main():
             2,
         )
 
-        cv2.imshow("Wink Cursor (Linux)", frame)
+        cv2.imshow("Wink Cursor", frame)
         key = cv2.waitKey(1) & 0xFF
         if key in (27, ord('q')):
             break
 
     cap.release()
-    face_mesh.close()
+    perception_pipeline.release()
     cv2.destroyAllWindows()
     return 0
 

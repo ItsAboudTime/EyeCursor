@@ -3,6 +3,8 @@ torch
 torchvision
 numpy>=1.24
 opencv-python>=4.8
+certifi>=2024.0.0
+mediapipe>=0.10
 
 # macOS-only
 pyobjc-core==11.1; sys_platform == "darwin"
@@ -10,7 +12,6 @@ pyobjc-framework-Cocoa==11.1; sys_platform == "darwin"
 pyobjc-framework-Quartz==11.1; sys_platform == "darwin"
 
 # Linux-only
-mediapipe>=0.10; sys_platform == "linux"
 scipy; sys_platform == "linux"
 pyautogui; sys_platform == "linux"
 keyboard; sys_platform == "linux"

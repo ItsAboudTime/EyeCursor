@@ -1,12 +1,12 @@
 import sys
 import threading
-import tkinter as tk
 import queue
 import time
+import cv2
 
 from cursor import create_cursor
 from ui import SettingsWindow
-from head_track import HeadPoseTracker
+from head_track.perception_pipeline import FaceAnalysisPipeline
 
 
 def parse_coords(raw: str):
@@ -102,36 +102,53 @@ def run_tracker_loop(cur, stop_event, stop_queue):
     screen_w = maxx - minx + 1
     screen_h = maxy - miny + 1
 
-    trackers = {
-        "cam4": HeadPoseTracker(camera_index=4),
-        "cam6": HeadPoseTracker(camera_index=6),
+    camera_indices = {
+        "cam4": 4,
+        "cam6": 6,
     }
     latest_pos = {"cam4": None, "cam6": None}
     latest_lock = threading.Lock()
 
-    def worker(name, tracker):
-        try:
-            tracker.start()
-        except Exception as e:
-            print(f"Failed to start {name}: {e}")
+    def worker(name, camera_index):
+        cap = cv2.VideoCapture(camera_index)
+        if not cap.isOpened():
+            print(f"Failed to start {name}: could not open webcam (index {camera_index})")
             stop_queue.put("QUIT")
             return
 
-        while not stop_event.is_set():
-            try:
-                pos, _frame, _angles = tracker.next_position(screen_w, screen_h)
-            except Exception as e:
-                print(f"{name} tracking error: {e}")
-                stop_queue.put("QUIT")
-                break
-            with latest_lock:
-                latest_pos[name] = pos
+        perception_pipeline = FaceAnalysisPipeline(yaw_span=20.0, pitch_span=10.0, smooth_len=8)
 
-        tracker.stop()
+        try:
+            while not stop_event.is_set():
+                ok, frame = cap.read()
+                if not ok:
+                    continue
+
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pos = None
+
+                perception = perception_pipeline.analyze(
+                    rgb_frame=rgb,
+                    frame_width=frame.shape[1],
+                    frame_height=frame.shape[0],
+                    screen_width=screen_w,
+                    screen_height=screen_h,
+                )
+                if perception is not None:
+                    pos = perception.screen_position
+
+                with latest_lock:
+                    latest_pos[name] = pos
+        except Exception as e:
+            print(f"{name} tracking error: {e}")
+            stop_queue.put("QUIT")
+        finally:
+            cap.release()
+            perception_pipeline.release()
 
     workers = [
-        threading.Thread(target=worker, args=("cam4", trackers["cam4"]), daemon=True),
-        threading.Thread(target=worker, args=("cam6", trackers["cam6"]), daemon=True),
+        threading.Thread(target=worker, args=("cam4", camera_indices["cam4"]), daemon=True),
+        threading.Thread(target=worker, args=("cam6", camera_indices["cam6"]), daemon=True),
     ]
 
     for t in workers:
@@ -157,9 +174,6 @@ def run_tracker_loop(cur, stop_event, stop_queue):
 
     for t in workers:
         t.join(timeout=1.0)
-
-    for tracker in trackers.values():
-        tracker.stop()
 
 
 def main():

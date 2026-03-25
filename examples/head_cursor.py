@@ -7,68 +7,86 @@ Requires webcam, OpenCV, and MediaPipe. Press 'q' to quit, 'c' to calibrate.
 import sys
 import threading
 import queue
+import cv2
 
 from cursor import create_cursor
 from ui.settings import SettingsWindow
-from head_track import HeadPoseTracker
+from head_track.perception_pipeline import FaceAnalysisPipeline
 
 
-def run_tracking_loop(cur, tracker, stop_queue):
-    import cv2
-    
+def run_tracking_loop(cur, stop_queue):
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Could not open webcam (index 0).")
+        stop_queue.put("QUIT")
+        return
+
+    perception_pipeline = FaceAnalysisPipeline(yaw_span=20.0, pitch_span=10.0, smooth_len=8)
+
     minx, miny, maxx, maxy = cur.get_virtual_bounds()
     screen_w = maxx - minx + 1
     screen_h = maxy - miny + 1
 
-    tracker.start()
     print("Head-Cursor demo running. Press 'q' to quit, 'c' to calibrate.")
 
-    while True:
-        if not stop_queue.empty():
-            if stop_queue.get() == "QUIT":
+    try:
+        while True:
+            if not stop_queue.empty():
+                if stop_queue.get() == "QUIT":
+                    break
+
+            ok, frame = cap.read()
+            if not ok:
+                continue
+
+            angles = None
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            perception = perception_pipeline.analyze(
+                rgb_frame=rgb,
+                frame_width=frame.shape[1],
+                frame_height=frame.shape[0],
+                screen_width=screen_w,
+                screen_height=screen_h,
+            )
+
+            if perception is not None:
+                if perception.screen_position is not None:
+                    raw_tx, raw_ty = perception.screen_position
+                    target_x = max(minx, min(maxx, raw_tx + minx))
+                    target_y = max(miny, min(maxy, raw_ty + miny))
+                    cur.step_towards(target_x, target_y)
+                angles = perception.angles
+
+            cv2.putText(
+                frame,
+                "Press 'c' to calibrate center, 'q' to quit",
+                (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 0),
+                2,
+            )
+
+            cv2.imshow("Head Cursor", frame)
+
+            key = cv2.waitKey(1) & 0xFF
+            if key in (27, ord('q')):
+                stop_queue.put("QUIT")
                 break
-
-        pos, frame, angles = tracker.next_position(screen_w, screen_h)
-
-        if pos is not None:
-            raw_tx, raw_ty = pos
-            target_x = max(minx, min(maxx, raw_tx + minx))
-            target_y = max(miny, min(maxy, raw_ty + miny))
-
-            cur.step_towards(target_x, target_y)
-
-        cv2.putText(
-            frame,
-            "Press 'c' to calibrate center, 'q' to quit",
-            (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (0, 255, 0),
-            2,
-        )
-
-        cv2.imshow("Head Cursor (Linux)", frame)
-        
-        key = cv2.waitKey(1) & 0xFF
-        if key in (27, ord('q')):
-            stop_queue.put("QUIT")
-            break
-        if key == ord('c'):
-            if angles is not None:
-                yaw, pitch = angles
-                tracker.calibrate_center(yaw, pitch)
-
-    tracker.stop()
-    cv2.destroyAllWindows()
+            if key == ord('c') and angles is not None:
+                perception_pipeline.calibrate_to_center(*angles)
+    finally:
+        cap.release()
+        perception_pipeline.release()
+        cv2.destroyAllWindows()
 
 
 def main():
-    if not sys.platform.startswith("linux"):
-        print("This demo currently supports Linux only.")
-        return 1
+    # if not sys.platform.startswith("linux"):
+    #     print("This demo currently supports Linux only.")
+    #     return 1
 
     cur = create_cursor()
-    tracker = HeadPoseTracker(yaw_span=20.0, pitch_span=10.0, smooth_len=8)
     msg_queue = queue.Queue()
 
     try:
@@ -89,7 +107,7 @@ def main():
 
     t = threading.Thread(
         target=run_tracking_loop, 
-        args=(cur, tracker, msg_queue), 
+        args=(cur, msg_queue), 
         daemon=True
     )
     t.start()

@@ -3,4 +3,7 @@ cursor/__pycache__/
 examples/__pycache__/
 ui/__pycache__/
 head_track/__pycache__/
-cursor/experiments/__pycache__/
+experiments/eye_gaze/__pycache__/
+experiments/head_pose/__pycache__/
+experiments/stereo_vision/__pycache__/
+__pycache__/main.cpython-313.pyc
