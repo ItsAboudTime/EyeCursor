@@ -34,11 +34,23 @@ class WindowsCursor(Cursor):
         return minx, miny, maxx, maxy
 
     def left_click(self) -> None:
-        user32.mouse_event(0x0002, 0, 0, 0, 0) 
-        user32.mouse_event(0x0004, 0, 0, 0, 0)  
+        self.left_down()
+        self.left_up()
+
+    def left_down(self) -> None:
+        user32.mouse_event(0x0002, 0, 0, 0, 0)
+
+    def left_up(self) -> None:
+        user32.mouse_event(0x0004, 0, 0, 0, 0)
 
     def right_click(self) -> None:
-        user32.mouse_event(0x0008, 0, 0, 0, 0) 
+        self.right_down()
+        self.right_up()
+
+    def right_down(self) -> None:
+        user32.mouse_event(0x0008, 0, 0, 0, 0)
+
+    def right_up(self) -> None:
         user32.mouse_event(0x0010, 0, 0, 0, 0)
 
     def scroll(self, delta: int) -> None:

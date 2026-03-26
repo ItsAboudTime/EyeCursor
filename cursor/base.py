@@ -14,7 +14,11 @@ class Cursor(ABC):
       - get_pos
       - set_pos
       - get_virtual_bounds
+      - left_down
+      - left_up
       - left_click
+      - right_down
+      - right_up
       - right_click
       - scroll
     """
@@ -64,8 +68,28 @@ class Cursor(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def left_down(self) -> None:
+        """Press and hold the left mouse button."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def left_up(self) -> None:
+        """Release the left mouse button."""
+        raise NotImplementedError
+
+    @abstractmethod
     def right_click(self) -> None:
         """Perform a right mouse click."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def right_down(self) -> None:
+        """Press and hold the right mouse button."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def right_up(self) -> None:
+        """Release the right mouse button."""
         raise NotImplementedError
 
     @abstractmethod

@@ -28,10 +28,24 @@ class LinuxCursor(Cursor):
         raise RuntimeError('Could not determine screen size')
 
     def left_click(self) -> None:
-        subprocess.call(['xdotool', 'click', '1'])
+        self.left_down()
+        self.left_up()
+
+    def left_down(self) -> None:
+        subprocess.call(['xdotool', 'mousedown', '1'])
+
+    def left_up(self) -> None:
+        subprocess.call(['xdotool', 'mouseup', '1'])
 
     def right_click(self) -> None:
-        subprocess.call(['xdotool', 'click', '3'])
+        self.right_down()
+        self.right_up()
+
+    def right_down(self) -> None:
+        subprocess.call(['xdotool', 'mousedown', '3'])
+
+    def right_up(self) -> None:
+        subprocess.call(['xdotool', 'mouseup', '3'])
 
     def scroll(self, delta: int) -> None:
         button = '4' if delta > 0 else '5'

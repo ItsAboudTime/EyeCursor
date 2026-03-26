@@ -31,10 +31,12 @@ def run_tracking_loop(cur, stop_queue, control_queue):
     screen_w = maxx - minx + 1
     screen_h = maxy - miny + 1
 
-    # Simple cooldown to avoid repeated clicks
-    last_left_click = 0.0
-    last_right_click = 0.0
-    CLICK_COOLDOWN = 0.6
+    # Repeated winks keep the corresponding mouse button held for dragging.
+    HOLD_REFRESH_WINDOW = 0.35
+    left_is_down = False
+    right_is_down = False
+    left_held_until = 0.0
+    right_held_until = 0.0
     latest_angles = None
 
     print("Head+Wink Cursor demo running.")
@@ -78,15 +80,28 @@ def run_tracking_loop(cur, stop_queue, control_queue):
 
                 now = time.time()
                 if face_analysis.wink_direction == "left":
-                    if now - last_right_click > CLICK_COOLDOWN:
-                        cur.right_click()
-                        last_right_click = now
+                    right_held_until = now + HOLD_REFRESH_WINDOW
+                    if not right_is_down:
+                        cur.right_down()
+                        right_is_down = True
                 elif face_analysis.wink_direction == "right":
-                    if now - last_left_click > CLICK_COOLDOWN:
-                        cur.left_click()
-                        last_left_click = now
+                    left_held_until = now + HOLD_REFRESH_WINDOW
+                    if not left_is_down:
+                        cur.left_down()
+                        left_is_down = True
+
+                if left_is_down and now > left_held_until:
+                    cur.left_up()
+                    left_is_down = False
+                if right_is_down and now > right_held_until:
+                    cur.right_up()
+                    right_is_down = False
 
     finally:
+        if left_is_down:
+            cur.left_up()
+        if right_is_down:
+            cur.right_up()
         cap.release()
         face_analysis_pipeline.release()
 

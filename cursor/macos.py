@@ -39,15 +39,27 @@ class MacOSCursor(Cursor):
         return minx, miny, maxx, maxy
 
     def left_click(self) -> None:
+        self.left_down()
+        self.left_up()
+
+    def left_down(self) -> None:
         event_down = CGEventCreateMouseEvent(None, kCGEventLeftMouseDown, self.get_pos(), 0)
-        event_up = CGEventCreateMouseEvent(None, kCGEventLeftMouseUp, self.get_pos(), 0)
         CGEventPost(0, event_down)
+
+    def left_up(self) -> None:
+        event_up = CGEventCreateMouseEvent(None, kCGEventLeftMouseUp, self.get_pos(), 0)
         CGEventPost(0, event_up)
 
     def right_click(self) -> None:
+        self.right_down()
+        self.right_up()
+
+    def right_down(self) -> None:
         event_down = CGEventCreateMouseEvent(None, kCGEventRightMouseDown, self.get_pos(), 0)
-        event_up = CGEventCreateMouseEvent(None, kCGEventRightMouseUp, self.get_pos(), 0)
         CGEventPost(0, event_down)
+
+    def right_up(self) -> None:
+        event_up = CGEventCreateMouseEvent(None, kCGEventRightMouseUp, self.get_pos(), 0)
         CGEventPost(0, event_up)
 
     def scroll(self, delta: int) -> None:
