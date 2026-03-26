@@ -192,7 +192,8 @@ def main():
             if msg == "QUIT":
                 stop_event.set()
                 root.quit()
-                sys.exit(0)
+                root.destroy()
+                return
         except queue.Empty:
             pass
         root.after(100, check_queue)
@@ -204,7 +205,7 @@ def main():
     t2 = threading.Thread(target=run_tracker_loop, args=(cur, stop_event, msg_queue), daemon=True)
     t2.start()
 
-    root.protocol("WM_DELETE_WINDOW", lambda: (stop_event.set(), root.quit()))
+    root.protocol("WM_DELETE_WINDOW", lambda: (stop_event.set(), root.quit(), root.destroy()))
 
     # Start App
     check_queue()

@@ -109,7 +109,8 @@ def main():
             msg = msg_queue.get_nowait()
             if msg == "QUIT":
                 root.quit()
-                sys.exit(0)
+                root.destroy()
+                return
         except queue.Empty:
             pass
         root.after(100, check_queue)
