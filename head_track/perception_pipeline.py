@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Iterable, Optional, Tuple
 
 from head_track.face_signals import HeadPoseSignalMapper, detect_wink_direction
 from head_track.tasks_face_landmarks import FaceLandmarksProvider
@@ -7,10 +7,11 @@ from head_track.tasks_face_landmarks import FaceLandmarksProvider
 
 @dataclass
 class FaceAnalysisResult:
-    landmarks: object
+    landmarks: Iterable
     screen_position: Optional[Tuple[int, int]]
     angles: Optional[Tuple[float, float]]
     wink_direction: Optional[str]
+    facial_transformation_matrix: Optional[object] = None
 
 
 class FaceAnalysisPipeline:
@@ -38,9 +39,12 @@ class FaceAnalysisPipeline:
         screen_width: int,
         screen_height: int,
     ) -> Optional[FaceAnalysisResult]:
-        landmarks = self._landmarks_provider.get_primary_face_landmarks(rgb_frame)
-        if landmarks is None:
+        observation = self._landmarks_provider.get_primary_face_observation(rgb_frame)
+        if observation is None:
             return None
+
+        landmarks = observation.landmarks
+        facial_transformation_matrix = observation.facial_transformation_matrix
 
         position_and_angles = self._head_pose_mapper.estimate_screen_position(
             landmarks=landmarks,
@@ -48,6 +52,7 @@ class FaceAnalysisPipeline:
             frame_height=frame_height,
             screen_width=screen_width,
             screen_height=screen_height,
+            facial_transformation_matrix=facial_transformation_matrix,
         )
 
         if position_and_angles is not None:
@@ -59,6 +64,7 @@ class FaceAnalysisPipeline:
         wink_direction = detect_wink_direction(landmarks)
         return FaceAnalysisResult(
             landmarks=landmarks,
+            facial_transformation_matrix=facial_transformation_matrix,
             screen_position=screen_position,
             angles=angles,
             wink_direction=wink_direction,

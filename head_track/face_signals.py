@@ -1,4 +1,3 @@
-import math
 from collections import deque
 from typing import Iterable, Optional, Sequence, Tuple
 
@@ -29,13 +28,70 @@ class HeadPoseSignalMapper:
         }
 
     def calibrate_to_center(self, yaw: float, pitch: float) -> None:
-        self._calibration_yaw = 180.0 - yaw
-        self._calibration_pitch = 180.0 - pitch
+        self._calibration_yaw = -yaw
+        self._calibration_pitch = -pitch
 
-    def estimate_head_pose(self, landmarks, frame_width: int, frame_height: int) -> Optional[Tuple[float, float]]:
-        if landmarks is None:
+    def estimate_head_pose(
+        self,
+        landmarks=None,
+        frame_width: int = 1,
+        frame_height: int = 1,
+        facial_transformation_matrix: Optional[Sequence[Sequence[float]]] = None,
+    ) -> Optional[Tuple[float, float]]:
+        forward_axis = self._forward_axis_from_matrix(facial_transformation_matrix)
+        if forward_axis is None:
+            if landmarks is None:
+                return None
+            forward_axis = self._forward_axis_from_landmarks(
+                landmarks=landmarks,
+                frame_width=frame_width,
+                frame_height=frame_height,
+            )
+
+        self._ray_dirs.append(forward_axis)
+        averaged_direction = np.mean(self._ray_dirs, axis=0)
+        averaged_direction /= np.linalg.norm(averaged_direction) + 1e-9
+
+        yaw, pitch = self._compute_angles(averaged_direction)
+        return yaw, pitch
+
+    def _forward_axis_from_matrix(
+        self,
+        facial_transformation_matrix: Optional[Sequence[Sequence[float]]],
+    ) -> Optional[np.ndarray]:
+        if facial_transformation_matrix is None:
             return None
 
+        matrix = np.asarray(facial_transformation_matrix, dtype=float)
+        if matrix.shape == (16,):
+            matrix = matrix.reshape(4, 4)
+        if matrix.shape != (4, 4):
+            return None
+
+        rotation = matrix[:3, :3]
+        try:
+            u, _, vh = np.linalg.svd(rotation)
+            rotation = u @ vh
+            if np.linalg.det(rotation) < 0:
+                u[:, -1] *= -1.0
+                rotation = u @ vh
+        except Exception:
+            pass
+
+        # Use a single axis convention to avoid frame-to-frame flips.
+        forward_axis = -rotation[:, 2]
+        norm = np.linalg.norm(forward_axis)
+        if norm < 1e-9:
+            return None
+        forward_axis = forward_axis / norm
+
+        # Keep neutral orientation roughly aligned to looking "forward" along -Z.
+        if forward_axis[2] > 0.0:
+            forward_axis = -forward_axis
+
+        return forward_axis
+
+    def _forward_axis_from_landmarks(self, landmarks, frame_width: int, frame_height: int) -> np.ndarray:
         def landmark_to_numpy(landmark_index: int) -> np.ndarray:
             point = landmarks[landmark_index]
             return np.array([point.x * frame_width, point.y * frame_height, point.z * frame_width], dtype=float)
@@ -53,18 +109,13 @@ class HeadPoseSignalMapper:
 
         forward_axis = np.cross(right_axis, up_axis)
         forward_axis /= np.linalg.norm(forward_axis) + 1e-9
-        forward_axis = -forward_axis
-
-        self._ray_dirs.append(forward_axis)
-        averaged_direction = np.mean(self._ray_dirs, axis=0)
-        averaged_direction /= np.linalg.norm(averaged_direction) + 1e-9
-
-        yaw, pitch = self._compute_angles(averaged_direction)
-        return yaw, pitch
+        return -forward_axis
 
     def get_x_and_y_on_screen(self, yaw: float, pitch: float, screen_width: int, screen_height: int) -> Tuple[int, int]:
-        screen_x = int(((yaw - (180.0 - self.yaw_span)) / (2.0 * self.yaw_span)) * screen_width)
-        screen_y = int(((180.0 + self.pitch_span - pitch) / (2.0 * self.pitch_span)) * screen_height)
+        norm_x = (yaw + self.yaw_span) / (2.0 * self.yaw_span)
+        norm_y = (pitch + self.pitch_span) / (2.0 * self.pitch_span)
+        screen_x = int(norm_x * screen_width)
+        screen_y = int(norm_y * screen_height)
 
         screen_x = max(0, min(screen_width - 1, screen_x))
         screen_y = max(0, min(screen_height - 1, screen_y))
@@ -77,11 +128,13 @@ class HeadPoseSignalMapper:
         frame_height: int,
         screen_width: int,
         screen_height: int,
+        facial_transformation_matrix: Optional[Sequence[Sequence[float]]] = None,
     ) -> Optional[Tuple[Tuple[int, int], Tuple[float, float]]]:
         angles = self.estimate_head_pose(
             landmarks=landmarks,
             frame_width=frame_width,
             frame_height=frame_height,
+            facial_transformation_matrix=facial_transformation_matrix,
         )
         if angles is None:
             return None
@@ -96,30 +149,16 @@ class HeadPoseSignalMapper:
         return screen_position, angles
 
     def _compute_angles(self, averaged_direction: np.ndarray) -> Tuple[float, float]:
-        reference_forward = np.array([0.0, 0.0, -1.0])
+        x, y, z = float(averaged_direction[0]), float(averaged_direction[1]), float(averaged_direction[2])
 
-        xz_projection = np.array([averaged_direction[0], 0.0, averaged_direction[2]])
-        xz_projection /= np.linalg.norm(xz_projection) + 1e-9
-        yaw = math.degrees(math.acos(np.clip(np.dot(reference_forward, xz_projection), -1.0, 1.0)))
-        if averaged_direction[0] < 0:
-            yaw = -yaw
-
-        yz_projection = np.array([0.0, averaged_direction[1], averaged_direction[2]])
-        yz_projection /= np.linalg.norm(yz_projection) + 1e-9
-        pitch = math.degrees(math.acos(np.clip(np.dot(reference_forward, yz_projection), -1.0, 1.0)))
-        if averaged_direction[1] > 0:
-            pitch = -pitch
-
-        if yaw < 0:
-            yaw = abs(yaw)
-        elif yaw < 180:
-            yaw = 360 - yaw
-
-        if pitch < 0:
-            pitch = 360 + pitch
+        # Zero-centered angles around forward (-Z):
+        # yaw  > 0 => looking right, pitch > 0 => looking down.
+        yaw = float(np.degrees(np.arctan2(x, -z)))
+        pitch = float(np.degrees(np.arctan2(y, -z)))
 
         yaw += self._calibration_yaw
         pitch += self._calibration_pitch
+
         return yaw, pitch
 
 
