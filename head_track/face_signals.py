@@ -1,4 +1,3 @@
-from collections import deque
 from typing import Iterable, Optional, Sequence, Tuple
 
 import numpy as np
@@ -11,10 +10,20 @@ RIGHT_EYE_INDICES = [33, 160, 158, 133, 153, 144]
 class HeadPoseSignalMapper:
     """Maps face landmarks to head-pose angles and screen coordinates."""
 
-    def __init__(self, yaw_span: float = 20.0, pitch_span: float = 10.0, smooth_len: int = 8) -> None:
+    def __init__(
+        self,
+        yaw_span: float = 20.0,
+        pitch_span: float = 10.0,
+        ema_alpha: float = 0.25,
+    ) -> None:
         self.yaw_span = float(yaw_span)
         self.pitch_span = float(pitch_span)
-        self._ray_dirs: deque[np.ndarray] = deque(maxlen=int(smooth_len))
+
+        self.ema_alpha = float(ema_alpha)
+        if not (0.0 < self.ema_alpha <= 1.0):
+            raise ValueError("ema_alpha must be in the range (0, 1].")
+
+        self._ema_direction: Optional[np.ndarray] = None
 
         self._calibration_yaw = 0.0
         self._calibration_pitch = 0.0
@@ -48,9 +57,15 @@ class HeadPoseSignalMapper:
                 frame_height=frame_height,
             )
 
-        self._ray_dirs.append(forward_axis)
-        averaged_direction = np.mean(self._ray_dirs, axis=0)
-        averaged_direction /= np.linalg.norm(averaged_direction) + 1e-9
+        if self._ema_direction is None:
+            self._ema_direction = forward_axis
+        else:
+            self._ema_direction = (
+                self.ema_alpha * forward_axis + (1.0 - self.ema_alpha) * self._ema_direction
+            )
+            self._ema_direction /= np.linalg.norm(self._ema_direction) + 1e-9
+
+        averaged_direction = self._ema_direction
 
         yaw, pitch = self._compute_angles(averaged_direction)
         return yaw, pitch

@@ -112,7 +112,7 @@ def run_tracker_loop(cur, stop_event, stop_queue):
             stop_queue.put("QUIT")
             return
 
-        face_analysis_pipeline = FaceAnalysisPipeline(yaw_span=20.0, pitch_span=10.0, smooth_len=8)
+        face_analysis_pipeline = FaceAnalysisPipeline(yaw_span=20.0, pitch_span=10.0, ema_alpha=0.25)
 
         try:
             while not stop_event.is_set():

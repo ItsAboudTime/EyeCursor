@@ -266,10 +266,10 @@ def _build_parser() -> argparse.ArgumentParser:
 		help="Vertical head-pose span in degrees for full-screen mapping (headpose mode)",
 	)
 	parser.add_argument(
-		"--smooth-len",
-		type=int,
-		default=8,
-		help="Smoothing window size for head-pose direction (headpose mode)",
+		"--ema-alpha",
+		type=float,
+		default=0.25,
+		help="EMA alpha for head-pose smoothing in (0, 1] (headpose mode)",
 	)
 	parser.add_argument(
 		"--show-preview",
@@ -297,7 +297,7 @@ def _run_headpose_mode(cur, args) -> int:
 	face_analysis_pipeline = FaceAnalysisPipeline(
 		yaw_span=args.yaw_span,
 		pitch_span=args.pitch_span,
-		smooth_len=args.smooth_len,
+		ema_alpha=args.ema_alpha,
 		face_model_path=args.face_model_path.strip() or None,
 	)
 	cap = cv2_module.VideoCapture(args.camera_index)

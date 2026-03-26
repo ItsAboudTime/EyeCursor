@@ -21,14 +21,14 @@ class FaceAnalysisPipeline:
         self,
         yaw_span: float = 20.0,
         pitch_span: float = 10.0,
-        smooth_len: int = 8,
+        ema_alpha: float = 0.25,
         face_model_path: Optional[str] = None,
     ) -> None:
         self._landmarks_provider = FaceLandmarksProvider(face_model_path=face_model_path)
         self._head_pose_mapper = HeadPoseSignalMapper(
             yaw_span=yaw_span,
             pitch_span=pitch_span,
-            smooth_len=smooth_len,
+            ema_alpha=ema_alpha,
         )
 
     def analyze(

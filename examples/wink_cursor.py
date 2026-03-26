@@ -12,7 +12,7 @@ from head_track.perception_pipeline import FaceAnalysisPipeline
 
 def main():
     cur = create_cursor()
-    face_analysis_pipeline = FaceAnalysisPipeline(yaw_span=20.0, pitch_span=10.0, smooth_len=8)
+    face_analysis_pipeline = FaceAnalysisPipeline(yaw_span=20.0, pitch_span=10.0, ema_alpha=0.25)
 
     cap = cv2.VideoCapture(0)
     print("Wink-Cursor demo running. Press 'q' to quit.")
