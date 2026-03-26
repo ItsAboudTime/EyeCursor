@@ -23,7 +23,7 @@ def run_tracking_loop(cur, stop_queue, control_queue):
         stop_queue.put("QUIT")
         return
 
-    face_analysis_pipeline = FaceAnalysisPipeline(yaw_span=20.0, pitch_span=10.0, smooth_len=8)
+    face_analysis_pipeline = FaceAnalysisPipeline(yaw_span=40.0, pitch_span=20.0, smooth_len=8)
 
     minx, miny, maxx, maxy = cur.get_virtual_bounds()
     screen_w = maxx - minx + 1
