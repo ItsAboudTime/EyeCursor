@@ -5,7 +5,7 @@
 ### 1. Clone the Repository
 ```bash
 git clone https://github.com/ItsAboudTime/EyeCursor.git
-cd Graduation-Project
+cd EyeCursor
 ```
 
 ### 2. Create a Virtual Environment
