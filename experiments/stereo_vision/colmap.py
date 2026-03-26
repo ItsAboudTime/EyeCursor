@@ -214,12 +214,6 @@ class ColmapOneShotMapper:
 
 def _build_parser() -> argparse.ArgumentParser:
 	parser = argparse.ArgumentParser(description="One-shot COLMAP cursor control")
-	parser.add_argument(
-		"--mode",
-		choices=("colmap", "headpose"),
-		default="colmap",
-		help="Tracking mode: 'colmap' (file/database workflow) or 'headpose' (real-time stream)",
-	)
 	parser.add_argument("--camera-index", type=int, default=0, help="Webcam index (default: 0)")
 	parser.add_argument(
 		"--work-dir",
@@ -253,109 +247,7 @@ def _build_parser() -> argparse.ArgumentParser:
 		default=0.15,
 		help="Delay between loop iterations in seconds (default: 0.15)",
 	)
-	parser.add_argument(
-		"--yaw-span",
-		type=float,
-		default=20.0,
-		help="Horizontal head-pose span in degrees for full-screen mapping (headpose mode)",
-	)
-	parser.add_argument(
-		"--pitch-span",
-		type=float,
-		default=10.0,
-		help="Vertical head-pose span in degrees for full-screen mapping (headpose mode)",
-	)
-	parser.add_argument(
-		"--smooth-len",
-		type=int,
-		default=8,
-		help="Smoothing window size for head-pose direction (headpose mode)",
-	)
-	parser.add_argument(
-		"--show-preview",
-		action="store_true",
-		help="Show camera preview window in headpose mode",
-	)
-	parser.add_argument(
-		"--face-model-path",
-		type=str,
-		default="",
-		help="Path to a local MediaPipe Face Landmarker .task model file (headpose mode)",
-	)
 	return parser
-
-
-def _run_headpose_mode(cur, args) -> int:
-	try:
-		import cv2 as cv2_module
-		from head_track.perception_pipeline import FaceAnalysisPipeline
-	except Exception as exc:
-		raise RuntimeError(
-			"Head-pose mode requires head_track dependencies (opencv-python, mediapipe)."
-		) from exc
-
-	perception_pipeline = FaceAnalysisPipeline(
-		yaw_span=args.yaw_span,
-		pitch_span=args.pitch_span,
-		smooth_len=args.smooth_len,
-		face_model_path=args.face_model_path.strip() or None,
-	)
-	cap = cv2_module.VideoCapture(args.camera_index)
-	if not cap.isOpened():
-		raise RuntimeError(f"Could not open webcam (index {args.camera_index})")
-
-	minx, miny, maxx, maxy = cur.get_virtual_bounds()
-	screen_w = maxx - minx + 1
-	screen_h = maxy - miny + 1
-
-	interval_sec = max(0.0, float(args.interval_sec))
-	cv2 = cv2_module if args.show_preview else None
-
-	print("Real-time head-pose mode enabled. Press Ctrl+C to stop.")
-	if args.show_preview:
-		print("Preview enabled. Press 'q' in preview window to stop.")
-
-	try:
-		while True:
-			ok, frame = cap.read()
-			if not ok:
-				continue
-
-			rgb = cv2_module.cvtColor(frame, cv2_module.COLOR_BGR2RGB)
-			perception = perception_pipeline.analyze(
-				rgb_frame=rgb,
-				frame_width=frame.shape[1],
-				frame_height=frame.shape[0],
-				screen_width=screen_w,
-				screen_height=screen_h,
-			)
-			if perception is not None and perception.screen_position is not None:
-				raw_tx, raw_ty = perception.screen_position
-				target_x = max(minx, min(maxx, raw_tx + minx))
-				target_y = max(miny, min(maxy, raw_ty + miny))
-				cur.step_towards(target_x, target_y)
-
-			if args.show_preview:
-				assert cv2 is not None
-				cv2.imshow("Head Pose Cursor", frame)
-				key = cv2.waitKey(1) & 0xFF
-				if key in (27, ord("q")):
-					break
-
-			if interval_sec > 0.0:
-				time.sleep(interval_sec)
-	except KeyboardInterrupt:
-		print("Stopped head-pose mode.")
-	finally:
-		cap.release()
-		perception_pipeline.release()
-		if args.show_preview and cv2 is not None:
-			try:
-				cv2.destroyAllWindows()
-			except Exception:
-				pass
-
-	return 0
 
 
 def main() -> int:
@@ -365,9 +257,6 @@ def main() -> int:
 	args = parser.parse_args()
 
 	cur = create_cursor()
-	if args.mode == "headpose":
-		return _run_headpose_mode(cur=cur, args=args)
-
 	minx, miny, maxx, maxy = cur.get_virtual_bounds()
 
 	mapper = ColmapOneShotMapper(camera_index=args.camera_index)
@@ -428,3 +317,4 @@ def main() -> int:
 
 if __name__ == "__main__":
 	raise SystemExit(main())
+

@@ -12,7 +12,7 @@ from head_track.perception_pipeline import FaceAnalysisPipeline
 
 def main():
     cur = create_cursor()
-    perception_pipeline = FaceAnalysisPipeline(yaw_span=20.0, pitch_span=10.0, smooth_len=8)
+    face_analysis_pipeline = FaceAnalysisPipeline(yaw_span=20.0, pitch_span=10.0, smooth_len=8)
 
     cap = cv2.VideoCapture(0)
     print("Wink-Cursor demo running. Press 'q' to quit.")
@@ -24,15 +24,15 @@ def main():
 
         frame = cv2.flip(frame, 1)
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        perception = perception_pipeline.analyze(
+        face_analysis = face_analysis_pipeline.analyze(
             rgb_frame=rgb_frame,
             frame_width=frame.shape[1],
             frame_height=frame.shape[0],
             screen_width=frame.shape[1],
             screen_height=frame.shape[0],
         )
-        if perception is not None:
-            wink_direction = perception.wink_direction
+        if face_analysis is not None:
+            wink_direction = face_analysis.wink_direction
 
             if wink_direction == "left":  # Left wink detected
                 cur.right_click()
@@ -55,7 +55,7 @@ def main():
             break
 
     cap.release()
-    perception_pipeline.release()
+    face_analysis_pipeline.release()
     cv2.destroyAllWindows()
     return 0
 

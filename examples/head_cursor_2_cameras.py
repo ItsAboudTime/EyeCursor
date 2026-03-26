@@ -112,7 +112,7 @@ def run_tracker_loop(cur, stop_event, stop_queue):
             stop_queue.put("QUIT")
             return
 
-        perception_pipeline = FaceAnalysisPipeline(yaw_span=20.0, pitch_span=10.0, smooth_len=8)
+        face_analysis_pipeline = FaceAnalysisPipeline(yaw_span=20.0, pitch_span=10.0, smooth_len=8)
 
         try:
             while not stop_event.is_set():
@@ -123,15 +123,15 @@ def run_tracker_loop(cur, stop_event, stop_queue):
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pos = None
 
-                perception = perception_pipeline.analyze(
+                face_analysis = face_analysis_pipeline.analyze(
                     rgb_frame=rgb,
                     frame_width=frame.shape[1],
                     frame_height=frame.shape[0],
                     screen_width=screen_w,
                     screen_height=screen_h,
                 )
-                if perception is not None:
-                    pos = perception.screen_position
+                if face_analysis is not None:
+                    pos = face_analysis.screen_position
 
                 with latest_lock:
                     latest_pos[name] = pos
@@ -140,7 +140,7 @@ def run_tracker_loop(cur, stop_event, stop_queue):
             stop_queue.put("QUIT")
         finally:
             cap.release()
-            perception_pipeline.release()
+            face_analysis_pipeline.release()
 
     workers = [
         threading.Thread(target=worker, args=("cam4", camera_indices["cam4"]), daemon=True),

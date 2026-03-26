@@ -6,7 +6,7 @@ from head_track.tasks_face_landmarks import FaceLandmarksProvider
 
 
 @dataclass
-class FacePerceptionResult:
+class FaceAnalysisResult:
     landmarks: object
     screen_position: Optional[Tuple[int, int]]
     angles: Optional[Tuple[float, float]]
@@ -37,7 +37,7 @@ class FaceAnalysisPipeline:
         frame_height: int,
         screen_width: int,
         screen_height: int,
-    ) -> Optional[FacePerceptionResult]:
+    ) -> Optional[FaceAnalysisResult]:
         landmarks = self._landmarks_provider.get_primary_face_landmarks(rgb_frame)
         if landmarks is None:
             return None
@@ -57,7 +57,7 @@ class FaceAnalysisPipeline:
             angles = None
 
         wink_direction = detect_wink_direction(landmarks)
-        return FacePerceptionResult(
+        return FaceAnalysisResult(
             landmarks=landmarks,
             screen_position=screen_position,
             angles=angles,

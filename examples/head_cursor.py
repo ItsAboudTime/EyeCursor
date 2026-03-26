@@ -21,7 +21,7 @@ def run_tracking_loop(cur, stop_queue):
         stop_queue.put("QUIT")
         return
 
-    perception_pipeline = FaceAnalysisPipeline(yaw_span=20.0, pitch_span=10.0, smooth_len=8)
+    face_analysis_pipeline = FaceAnalysisPipeline(yaw_span=20.0, pitch_span=10.0, smooth_len=8)
 
     minx, miny, maxx, maxy = cur.get_virtual_bounds()
     screen_w = maxx - minx + 1
@@ -41,7 +41,7 @@ def run_tracking_loop(cur, stop_queue):
 
             angles = None
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            perception = perception_pipeline.analyze(
+            face_analysis = face_analysis_pipeline.analyze(
                 rgb_frame=rgb,
                 frame_width=frame.shape[1],
                 frame_height=frame.shape[0],
@@ -49,13 +49,13 @@ def run_tracking_loop(cur, stop_queue):
                 screen_height=screen_h,
             )
 
-            if perception is not None:
-                if perception.screen_position is not None:
-                    raw_tx, raw_ty = perception.screen_position
+            if face_analysis is not None:
+                if face_analysis.screen_position is not None:
+                    raw_tx, raw_ty = face_analysis.screen_position
                     target_x = max(minx, min(maxx, raw_tx + minx))
                     target_y = max(miny, min(maxy, raw_ty + miny))
                     cur.step_towards(target_x, target_y)
-                angles = perception.angles
+                angles = face_analysis.angles
 
             cv2.putText(
                 frame,
@@ -74,18 +74,14 @@ def run_tracking_loop(cur, stop_queue):
                 stop_queue.put("QUIT")
                 break
             if key == ord('c') and angles is not None:
-                perception_pipeline.calibrate_to_center(*angles)
+                face_analysis_pipeline.calibrate_to_center(*angles)
     finally:
         cap.release()
-        perception_pipeline.release()
+        face_analysis_pipeline.release()
         cv2.destroyAllWindows()
 
 
 def main():
-    # if not sys.platform.startswith("linux"):
-    #     print("This demo currently supports Linux only.")
-    #     return 1
-
     cur = create_cursor()
     msg_queue = queue.Queue()
 
