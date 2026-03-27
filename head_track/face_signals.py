@@ -188,7 +188,7 @@ def detect_wink_direction(
     landmarks: Iterable,
     left_eye_indices: Sequence[int] = LEFT_EYE_INDICES,
     right_eye_indices: Sequence[int] = RIGHT_EYE_INDICES,
-    closed_threshold: float = 0.2,
+    closed_threshold: float = 0.3,
     open_threshold: float = 0.3,
 ) -> Optional[str]:
     """
