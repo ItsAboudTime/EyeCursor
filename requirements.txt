@@ -13,6 +13,6 @@ pyobjc-framework-Quartz==11.1; sys_platform == "darwin"
 
 # Linux-only
 scipy; sys_platform == "linux"
-pyautogui; sys_platform == "linux"
+pynput; sys_platform == "linux"
 keyboard; sys_platform == "linux"
 eyeGestures; sys_platform == "linux"
