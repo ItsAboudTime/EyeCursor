@@ -8,7 +8,7 @@ import sys
 
 from cursor import create_cursor
 import cv2
-from head_track.perception_pipeline import FaceAnalysisPipeline
+from head_track.face_analysis_pipeline import FaceAnalysisPipeline
 
 def main():
     cur = create_cursor()

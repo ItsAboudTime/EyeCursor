@@ -6,7 +6,7 @@ import cv2
 
 from cursor import create_cursor
 from ui import SettingsWindow
-from head_track.perception_pipeline import FaceAnalysisPipeline
+from head_track.face_analysis_pipeline import FaceAnalysisPipeline
 
 
 def parse_coords(raw: str):

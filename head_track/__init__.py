@@ -1,3 +1,3 @@
 from .face_signals import HeadPoseSignalMapper, detect_wink_direction
 from .tasks_face_landmarks import FaceLandmarksProvider
-from .perception_pipeline import FaceAnalysisPipeline, FaceAnalysisResult
+from .face_analysis_pipeline import FaceAnalysisPipeline, FaceAnalysisResult

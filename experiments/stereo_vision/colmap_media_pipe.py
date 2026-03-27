@@ -288,7 +288,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def _run_headpose_mode(cur, args) -> int:
 	try:
 		import cv2 as cv2_module
-		from head_track.perception_pipeline import FaceAnalysisPipeline
+		from head_track.face_analysis_pipeline import FaceAnalysisPipeline
 	except Exception as exc:
 		raise RuntimeError(
 			"Head-pose mode requires head_track dependencies (opencv-python, mediapipe)."
