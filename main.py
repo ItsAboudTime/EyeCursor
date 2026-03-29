@@ -14,37 +14,34 @@ import time
 import cv2
 
 from cursor import create_cursor
+from head_track.gesture_controller import GestureController
 from ui.settings import SettingsWindow
 from head_track.face_analysis_pipeline import FaceAnalysisPipeline
 
 
-def run_tracking_loop(cur, stop_queue, control_queue):
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
+def run_tracking_loop(cursor, stop_queue, control_queue):
+    camera = cv2.VideoCapture(0)
+    if not camera.isOpened():
         print("Could not open webcam (index 0).")
         stop_queue.put("QUIT")
         return
 
-    face_analysis_pipeline = FaceAnalysisPipeline(
+    analysis_pipeline = FaceAnalysisPipeline(
         yaw_span=40.0,
         pitch_span=20.0,
         ema_alpha=0.1,
     )
 
-    minx, miny, maxx, maxy = cur.get_virtual_bounds()
+    minx, miny, maxx, maxy = cursor.get_virtual_bounds()
     screen_w = maxx - minx + 1
     screen_h = maxy - miny + 1
 
-    # A short wink performs a normal click. A continuous wink for >= 1 second becomes hold.
-    HOLD_TRIGGER_SECONDS = 1.0
-    RELEASE_MISSED_FRAMES = 5
-    left_is_down = False
-    right_is_down = False
-    active_blink_side = None
-    blink_started_at = 0.0
-    hold_mode = False
-    missed_same_side_frames = 0
-    latest_angles = None
+    gesture_controller = GestureController(
+        cursor=cursor,
+        hold_trigger_seconds=1.0,
+        release_missed_frames=5,
+    )
+    latest_head_angles = None
 
     print("Head+Wink Cursor demo running.")
     print("Focus the settings window and press 'c' to calibrate, 'q' or Esc to quit.")
@@ -57,19 +54,19 @@ def run_tracking_loop(cur, stop_queue, control_queue):
                 if cmd == "QUIT":
                     should_quit = True
                     break
-                if cmd == "CALIBRATE" and latest_angles is not None:
-                    face_analysis_pipeline.calibrate_to_center(*latest_angles)
+                if cmd == "CALIBRATE" and latest_head_angles is not None:
+                    analysis_pipeline.calibrate_to_center(*latest_head_angles)
 
             if should_quit:
                 stop_queue.put("QUIT")
                 break
 
-            ok, frame = cap.read()
+            ok, frame = camera.read()
             if not ok:
                 continue
 
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            face_analysis = face_analysis_pipeline.analyze(
+            face_analysis = analysis_pipeline.analyze(
                 rgb_frame=rgb,
                 frame_width=frame.shape[1],
                 frame_height=frame.shape[0],
@@ -78,91 +75,22 @@ def run_tracking_loop(cur, stop_queue, control_queue):
             )
 
             if face_analysis is not None:
-                if face_analysis.screen_position is not None:
-                    raw_tx, raw_ty = face_analysis.screen_position
-                    target_x = max(minx, min(maxx, raw_tx + minx))
-                    target_y = max(miny, min(maxy, raw_ty + miny))
-                    cur.step_towards(target_x, target_y)
-                latest_angles = face_analysis.angles
-
-                now = time.time()
-                wink_side = face_analysis.wink_direction
-
-                # Left wink maps to right mouse button, and right wink maps to left button.
-                if wink_side == "left":
-                    desired_button = "right"
-                elif wink_side == "right":
-                    desired_button = "left"
-                else:
-                    desired_button = None
-
-                if active_blink_side is None:
-                    if desired_button is not None:
-                        if desired_button == "left" and not left_is_down:
-                            cur.left_down()
-                            left_is_down = True
-                        elif desired_button == "right" and not right_is_down:
-                            cur.right_down()
-                            right_is_down = True
-
-                        active_blink_side = desired_button
-                        blink_started_at = now
-                        hold_mode = False
-                        missed_same_side_frames = 0
-                else:
-                    if desired_button == active_blink_side:
-                        missed_same_side_frames = 0
-                        if not hold_mode and (now - blink_started_at) >= HOLD_TRIGGER_SECONDS:
-                            hold_mode = True
-                    else:
-                        if hold_mode:
-                            missed_same_side_frames += 1
-                            should_release = missed_same_side_frames >= RELEASE_MISSED_FRAMES
-                        else:
-                            should_release = True
-
-                        if should_release:
-                            if active_blink_side == "left" and left_is_down:
-                                cur.left_up()
-                                left_is_down = False
-                            elif active_blink_side == "right" and right_is_down:
-                                cur.right_up()
-                                right_is_down = False
-
-                            active_blink_side = None
-                            blink_started_at = 0.0
-                            hold_mode = False
-                            missed_same_side_frames = 0
-
-                            # If the latest frame indicates the opposite wink,
-                            # start that click immediately after releasing.
-                            if desired_button is not None:
-                                if desired_button == "left" and not left_is_down:
-                                    cur.left_down()
-                                    left_is_down = True
-                                elif desired_button == "right" and not right_is_down:
-                                    cur.right_down()
-                                    right_is_down = True
-
-                                active_blink_side = desired_button
-                                blink_started_at = now
+                latest_head_angles = face_analysis.angles
+                gesture_controller.handle_face_analysis(face_analysis, now=time.time())
 
     finally:
-        if left_is_down:
-            cur.left_up()
-        if right_is_down:
-            cur.right_up()
-        cap.release()
-        face_analysis_pipeline.release()
+        gesture_controller.shutdown()
+        camera.release()
+        analysis_pipeline.release()
 
 
 def main():
-    cur = create_cursor()
-    msg_queue = queue.Queue()
+    cursor = create_cursor()
+    message_queue = queue.Queue()
     control_queue = queue.Queue()
 
     try:
-        root = SettingsWindow.create_app(cursor=cur)
+        root = SettingsWindow.create_app(cursor=cursor)
     except Exception as e:
         print(f"Fatal Error: Could not start Tkinter: {e}")
         return 1
@@ -180,8 +108,8 @@ def main():
 
     def check_queue():
         try:
-            msg = msg_queue.get_nowait()
-            if msg == "QUIT":
+            message = message_queue.get_nowait()
+            if message == "QUIT":
                 root.quit()
                 root.destroy()
                 return
@@ -189,12 +117,12 @@ def main():
             pass
         root.after(100, check_queue)
 
-    t = threading.Thread(
+    tracking_thread = threading.Thread(
         target=run_tracking_loop,
-        args=(cur, msg_queue, control_queue),
+        args=(cursor, message_queue, control_queue),
         daemon=True,
     )
-    t.start()
+    tracking_thread.start()
 
     check_queue()
     root.mainloop()
