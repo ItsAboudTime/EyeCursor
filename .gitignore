@@ -1,9 +1,12 @@
 venv/
+__pycache__/
 cursor/__pycache__/
 examples/__pycache__/
 ui/__pycache__/
-head_track/__pycache__/
+head_track/controllers/__pycache__/
+head_track/pipelines/__pycache__/
+head_track/providers/__pycache__/
+head_track/signals/__pycache__/
 experiments/eye_gaze/__pycache__/
 experiments/head_pose/__pycache__/
 experiments/stereo_vision/__pycache__/
-__pycache__/main.cpython-313.pyc

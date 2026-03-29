@@ -14,9 +14,9 @@ import time
 import cv2
 
 from cursor import create_cursor
-from head_track.gesture_controller import GestureController
+from face_tracking.controllers.gesture import GestureController
 from ui.settings import SettingsWindow
-from head_track.face_analysis_pipeline import FaceAnalysisPipeline
+from face_tracking.pipelines.face_analysis import FaceAnalysisPipeline
 
 
 def run_tracking_loop(cursor, stop_queue, control_queue):

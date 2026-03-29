@@ -13,7 +13,7 @@ import cv2
 
 from cursor import create_cursor
 from ui.settings import SettingsWindow
-from head_track.face_analysis_pipeline import FaceAnalysisPipeline
+from face_tracking.pipelines.face_analysis import FaceAnalysisPipeline
 
 
 def run_tracking_loop(cur, stop_queue, control_queue):

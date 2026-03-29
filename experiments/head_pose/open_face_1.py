@@ -40,7 +40,7 @@ import time
 
 from cursor import create_cursor
 from ui.settings import SettingsWindow
-from head_track import OpenFaceTracker
+from face_tracking import OpenFaceTracker
 
 
 # AU45 blink-click parameters

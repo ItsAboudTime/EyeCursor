@@ -18,7 +18,7 @@ import cv2
 import numpy as np
 
 from cursor import create_cursor
-from head_track.tasks_face_landmarks import FaceLandmarksProvider
+from face_tracking.providers.face_landmarks import FaceLandmarksProvider
 
 
 class EyeGazeTracker:

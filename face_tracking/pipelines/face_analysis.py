@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from typing import Iterable, Optional, Tuple
 
-from head_track.face_signals import HeadPoseSignalMapper, detect_wink_direction
-from head_track.tasks_face_landmarks import FaceLandmarksProvider
+from face_tracking.providers.face_landmarks import FaceLandmarksProvider
+from face_tracking.signals.head_pose import HeadPoseSignalMapper
+from face_tracking.signals.wink import detect_wink_direction
 
 
 @dataclass
