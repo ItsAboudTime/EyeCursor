@@ -12,6 +12,27 @@ def calculate_eye_aspect_ratio(eye_points: Sequence[Tuple[float, float]]) -> flo
     return (vertical_1 + vertical_2) / (2.0 * horizontal + 1e-9)
 
 
+def get_eye_aspect_ratios(
+    landmarks: Iterable,
+    left_eye_indices: Sequence[int] = LEFT_EYE_INDICES,
+    right_eye_indices: Sequence[int] = RIGHT_EYE_INDICES,
+) -> Tuple[float, float]:
+    """Return (left_eye_ratio, right_eye_ratio) for the current face landmarks."""
+
+    def to_xy(point) -> Tuple[float, float]:
+        if hasattr(point, "x") and hasattr(point, "y"):
+            return float(point.x), float(point.y)
+        return float(point[0]), float(point[1])
+
+    landmarks_list = list(landmarks)
+    left_eye_points = [to_xy(landmarks_list[i]) for i in left_eye_indices]
+    right_eye_points = [to_xy(landmarks_list[i]) for i in right_eye_indices]
+
+    left_ratio = calculate_eye_aspect_ratio(left_eye_points)
+    right_ratio = calculate_eye_aspect_ratio(right_eye_points)
+    return left_ratio, right_ratio
+
+
 def detect_wink_direction(
     landmarks: Iterable,
     left_eye_indices: Sequence[int] = LEFT_EYE_INDICES,
@@ -25,18 +46,11 @@ def detect_wink_direction(
       - "right" if right wink is detected
       - None if no wink is detected
     """
-
-    def to_xy(point) -> Tuple[float, float]:
-        if hasattr(point, "x") and hasattr(point, "y"):
-            return float(point.x), float(point.y)
-        return float(point[0]), float(point[1])
-
-    landmarks_list = list(landmarks)
-    left_eye_points = [to_xy(landmarks_list[i]) for i in left_eye_indices]
-    right_eye_points = [to_xy(landmarks_list[i]) for i in right_eye_indices]
-
-    left_ratio = calculate_eye_aspect_ratio(left_eye_points)
-    right_ratio = calculate_eye_aspect_ratio(right_eye_points)
+    left_ratio, right_ratio = get_eye_aspect_ratios(
+        landmarks=landmarks,
+        left_eye_indices=left_eye_indices,
+        right_eye_indices=right_eye_indices,
+    )
 
     if left_ratio < closed_threshold and right_ratio > open_threshold:
         return "left"

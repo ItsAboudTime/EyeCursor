@@ -9,11 +9,23 @@ class GestureController:
         cursor,
         hold_trigger_seconds: float = 1.0,
         release_missed_frames: int = 5,
+        both_eyes_open_threshold: float = 0.7,
+        both_eyes_squint_threshold: float = 0.3,
+        scroll_trigger_seconds: float = 1.0,
+        scroll_delta: int = 120,
     ) -> None:
         if hold_trigger_seconds <= 0.0:
             raise ValueError("hold_trigger_seconds must be > 0")
         if release_missed_frames < 1:
             raise ValueError("release_missed_frames must be >= 1")
+        if both_eyes_squint_threshold < 0.0:
+            raise ValueError("both_eyes_squint_threshold must be >= 0")
+        if both_eyes_open_threshold <= both_eyes_squint_threshold:
+            raise ValueError("both_eyes_open_threshold must be > both_eyes_squint_threshold")
+        if scroll_trigger_seconds <= 0.0:
+            raise ValueError("scroll_trigger_seconds must be > 0")
+        if scroll_delta <= 0:
+            raise ValueError("scroll_delta must be > 0")
 
         self.cursor = cursor
         minx, miny, maxx, maxy = self.cursor.get_virtual_bounds()
@@ -24,6 +36,10 @@ class GestureController:
 
         self.hold_trigger_seconds = float(hold_trigger_seconds)
         self.release_missed_frames = int(release_missed_frames)
+        self.both_eyes_open_threshold = float(both_eyes_open_threshold)
+        self.both_eyes_squint_threshold = float(both_eyes_squint_threshold)
+        self.scroll_trigger_seconds = float(scroll_trigger_seconds)
+        self.scroll_delta = int(scroll_delta)
 
         self.left_is_down = False
         self.right_is_down = False
@@ -31,6 +47,55 @@ class GestureController:
         self.blink_started_at = 0.0
         self.hold_mode = False
         self.missed_same_side_frames = 0
+
+        self.active_scroll_gesture: Optional[str] = None
+        self.scroll_gesture_started_at = 0.0
+        self.last_scroll_at = 0.0
+
+    def _resolve_scroll_gesture(self, left_eye_ratio: Optional[float], right_eye_ratio: Optional[float]) -> Optional[str]:
+        if left_eye_ratio is None or right_eye_ratio is None:
+            return None
+        if (
+            left_eye_ratio >= self.both_eyes_open_threshold
+            and right_eye_ratio >= self.both_eyes_open_threshold
+        ):
+            return "both_open"
+        if (
+            left_eye_ratio <= self.both_eyes_squint_threshold
+            and right_eye_ratio <= self.both_eyes_squint_threshold
+        ):
+            return "both_squint"
+        return None
+
+    def _handle_scroll_gesture(self, face_analysis, now: float) -> None:
+        gesture = self._resolve_scroll_gesture(
+            left_eye_ratio=face_analysis.left_eye_ratio,
+            right_eye_ratio=face_analysis.right_eye_ratio,
+        )
+
+        if gesture != self.active_scroll_gesture:
+            self.active_scroll_gesture = gesture
+            self.scroll_gesture_started_at = now
+            self.last_scroll_at = 0.0
+            return
+
+        if gesture is None:
+            return
+
+        if (now - self.scroll_gesture_started_at) < self.scroll_trigger_seconds:
+            return
+
+        scroll_units_per_sec = float(getattr(self.cursor, "scroll_units_per_sec", 300.0))
+        min_repeat_interval = abs(self.scroll_delta) / max(1e-6, scroll_units_per_sec)
+        if self.last_scroll_at > 0.0 and (now - self.last_scroll_at) < min_repeat_interval:
+            return
+
+        if gesture == "both_open":
+            self.cursor.scroll_with_speed(-self.scroll_delta)
+        elif gesture == "both_squint":
+            self.cursor.scroll_with_speed(self.scroll_delta)
+
+        self.last_scroll_at = now
 
     @staticmethod
     def _wink_to_button(wink_side: Optional[str]) -> Optional[str]:
@@ -127,6 +192,9 @@ class GestureController:
         self.blink_started_at = 0.0
         self.hold_mode = False
         self.missed_same_side_frames = 0
+        self.active_scroll_gesture = None
+        self.scroll_gesture_started_at = 0.0
+        self.last_scroll_at = 0.0
         return actions
 
     def handle_face_analysis(self, face_analysis, now: float) -> None:
@@ -141,6 +209,7 @@ class GestureController:
             now=now,
         )
         self._apply_mouse_actions(actions)
+        self._handle_scroll_gesture(face_analysis=face_analysis, now=now)
 
     def shutdown(self) -> None:
         self._apply_mouse_actions(self.release_all())

@@ -3,7 +3,7 @@ from typing import Iterable, Optional, Tuple
 
 from face_tracking.providers.face_landmarks import FaceLandmarksProvider
 from face_tracking.signals.head_pose import HeadPoseSignalMapper
-from face_tracking.signals.wink import detect_wink_direction
+from face_tracking.signals.wink import detect_wink_direction, get_eye_aspect_ratios
 
 
 @dataclass
@@ -12,6 +12,8 @@ class FaceAnalysisResult:
     screen_position: Optional[Tuple[int, int]]
     angles: Optional[Tuple[float, float]]
     wink_direction: Optional[str]
+    left_eye_ratio: Optional[float] = None
+    right_eye_ratio: Optional[float] = None
     facial_transformation_matrix: Optional[object] = None
 
 
@@ -62,6 +64,7 @@ class FaceAnalysisPipeline:
             screen_position = None
             angles = None
 
+        left_eye_ratio, right_eye_ratio = get_eye_aspect_ratios(landmarks)
         wink_direction = detect_wink_direction(landmarks)
         return FaceAnalysisResult(
             landmarks=landmarks,
@@ -69,6 +72,8 @@ class FaceAnalysisPipeline:
             screen_position=screen_position,
             angles=angles,
             wink_direction=wink_direction,
+            left_eye_ratio=left_eye_ratio,
+            right_eye_ratio=right_eye_ratio,
         )
 
     def calibrate_to_center(self, yaw: float, pitch: float) -> None:

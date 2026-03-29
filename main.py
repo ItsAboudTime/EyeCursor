@@ -19,6 +19,12 @@ from ui.settings import SettingsWindow
 from face_tracking.pipelines.face_analysis import FaceAnalysisPipeline
 
 
+BOTH_EYES_SQUINT_SCROLL_THRESHOLD = 0.3
+BOTH_EYES_OPEN_SCROLL_THRESHOLD = 0.65
+EYE_SCROLL_HOLD_SECONDS = 1.0
+EYE_SCROLL_DELTA = 120
+
+
 def run_tracking_loop(cursor, stop_queue, control_queue):
     camera = cv2.VideoCapture(0)
     if not camera.isOpened():
@@ -40,6 +46,10 @@ def run_tracking_loop(cursor, stop_queue, control_queue):
         cursor=cursor,
         hold_trigger_seconds=1.0,
         release_missed_frames=5,
+        both_eyes_open_threshold=BOTH_EYES_OPEN_SCROLL_THRESHOLD,
+        both_eyes_squint_threshold=BOTH_EYES_SQUINT_SCROLL_THRESHOLD,
+        scroll_trigger_seconds=EYE_SCROLL_HOLD_SECONDS,
+        scroll_delta=EYE_SCROLL_DELTA,
     )
     latest_head_angles = None
 
