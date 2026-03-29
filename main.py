@@ -25,7 +25,11 @@ def run_tracking_loop(cur, stop_queue, control_queue):
         stop_queue.put("QUIT")
         return
 
-    face_analysis_pipeline = FaceAnalysisPipeline(yaw_span=40.0, pitch_span=20.0, ema_alpha=0.1)
+    face_analysis_pipeline = FaceAnalysisPipeline(
+        yaw_span=40.0,
+        pitch_span=20.0,
+        ema_alpha=0.1,
+    )
 
     minx, miny, maxx, maxy = cur.get_virtual_bounds()
     screen_w = maxx - minx + 1
@@ -33,11 +37,13 @@ def run_tracking_loop(cur, stop_queue, control_queue):
 
     # A short wink performs a normal click. A continuous wink for >= 1 second becomes hold.
     HOLD_TRIGGER_SECONDS = 1.0
+    RELEASE_MISSED_FRAMES = 5
     left_is_down = False
     right_is_down = False
     active_blink_side = None
     blink_started_at = 0.0
     hold_mode = False
+    missed_same_side_frames = 0
     latest_angles = None
 
     print("Head+Wink Cursor demo running.")
@@ -90,26 +96,8 @@ def run_tracking_loop(cur, stop_queue, control_queue):
                 else:
                     desired_button = None
 
-                if desired_button is None:
-                    if active_blink_side is not None:
-                        if active_blink_side == "left" and left_is_down:
-                            cur.left_up()
-                            left_is_down = False
-                        elif active_blink_side == "right" and right_is_down:
-                            cur.right_up()
-                            right_is_down = False
-                        active_blink_side = None
-                        blink_started_at = 0.0
-                        hold_mode = False
-                else:
-                    if active_blink_side != desired_button:
-                        if active_blink_side == "left" and left_is_down:
-                            cur.left_up()
-                            left_is_down = False
-                        elif active_blink_side == "right" and right_is_down:
-                            cur.right_up()
-                            right_is_down = False
-
+                if active_blink_side is None:
+                    if desired_button is not None:
                         if desired_button == "left" and not left_is_down:
                             cur.left_down()
                             left_is_down = True
@@ -120,8 +108,44 @@ def run_tracking_loop(cur, stop_queue, control_queue):
                         active_blink_side = desired_button
                         blink_started_at = now
                         hold_mode = False
-                    elif not hold_mode and (now - blink_started_at) >= HOLD_TRIGGER_SECONDS:
-                        hold_mode = True
+                        missed_same_side_frames = 0
+                else:
+                    if desired_button == active_blink_side:
+                        missed_same_side_frames = 0
+                        if not hold_mode and (now - blink_started_at) >= HOLD_TRIGGER_SECONDS:
+                            hold_mode = True
+                    else:
+                        if hold_mode:
+                            missed_same_side_frames += 1
+                            should_release = missed_same_side_frames >= RELEASE_MISSED_FRAMES
+                        else:
+                            should_release = True
+
+                        if should_release:
+                            if active_blink_side == "left" and left_is_down:
+                                cur.left_up()
+                                left_is_down = False
+                            elif active_blink_side == "right" and right_is_down:
+                                cur.right_up()
+                                right_is_down = False
+
+                            active_blink_side = None
+                            blink_started_at = 0.0
+                            hold_mode = False
+                            missed_same_side_frames = 0
+
+                            # If the latest frame indicates the opposite wink,
+                            # start that click immediately after releasing.
+                            if desired_button is not None:
+                                if desired_button == "left" and not left_is_down:
+                                    cur.left_down()
+                                    left_is_down = True
+                                elif desired_button == "right" and not right_is_down:
+                                    cur.right_down()
+                                    right_is_down = True
+
+                                active_blink_side = desired_button
+                                blink_started_at = now
 
     finally:
         if left_is_down:

@@ -7,6 +7,38 @@ LEFT_EYE_INDICES = [362, 385, 387, 263, 373, 380]
 RIGHT_EYE_INDICES = [33, 160, 158, 133, 153, 144]
 
 
+class WinkDirectionStabilizer:
+    """Temporal filter for wink direction to smooth out intermittent missed frames."""
+
+    def __init__(self, release_missed_frames: int = 5) -> None:
+        if release_missed_frames < 1:
+            raise ValueError("release_missed_frames must be >= 1")
+        self.release_missed_frames = int(release_missed_frames)
+        self._active_wink: Optional[str] = None
+        self._missed_frames = 0
+
+    def update(self, raw_wink: Optional[str]) -> Optional[str]:
+        if raw_wink not in (None, "left", "right"):
+            return self._active_wink
+
+        if self._active_wink is None:
+            if raw_wink in ("left", "right"):
+                self._active_wink = raw_wink
+                self._missed_frames = 0
+            return self._active_wink
+
+        if raw_wink == self._active_wink:
+            self._missed_frames = 0
+            return self._active_wink
+
+        self._missed_frames += 1
+        if self._missed_frames >= self.release_missed_frames:
+            self._active_wink = raw_wink
+            self._missed_frames = 0
+
+        return self._active_wink
+
+
 class HeadPoseSignalMapper:
     """Maps face landmarks to head-pose angles and screen coordinates."""
 
