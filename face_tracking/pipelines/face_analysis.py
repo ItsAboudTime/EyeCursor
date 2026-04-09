@@ -15,6 +15,7 @@ class FaceAnalysisResult:
     left_eye_ratio: Optional[float] = None
     right_eye_ratio: Optional[float] = None
     facial_transformation_matrix: Optional[object] = None
+    depth: Optional[float] = None
 
 
 class FaceAnalysisPipeline:
