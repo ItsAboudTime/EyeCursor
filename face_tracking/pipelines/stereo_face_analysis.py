@@ -279,6 +279,7 @@ class StereoFaceAnalysisPipeline:
             pitch_span=pitch_span,
             ema_alpha=ema_alpha,
         )
+        self._debug_landmark_indices = [1, 10, 152, 234, 454]
 
     def analyze(
         self,
@@ -305,6 +306,16 @@ class StereoFaceAnalysisPipeline:
             right_frame_height=right_frame_height,
         )
 
+        self._debug_print_points(
+            left_landmarks=left_observation.landmarks,
+            right_landmarks=right_observation.landmarks,
+            left_frame_width=left_frame_width,
+            left_frame_height=left_frame_height,
+            right_frame_width=right_frame_width,
+            right_frame_height=right_frame_height,
+            points_3d=points_3d,
+        )
+
         mapped = self._pose_mapper.estimate_screen_position(
             points_3d=points_3d,
             screen_width=screen_width,
@@ -316,6 +327,18 @@ class StereoFaceAnalysisPipeline:
         depth: Optional[float] = None
         if mapped is not None:
             screen_position, angles, depth = mapped
+            print(
+                "yaw={}, pitch={}".format(
+                    float(angles[0]),
+                    float(angles[1]),
+                )
+            )
+            print(
+                "screen_x={}, screen_y={}".format(
+                    int(screen_position[0]),
+                    int(screen_position[1]),
+                )
+            )
 
         left_left_ratio, left_right_ratio = get_eye_aspect_ratios(left_observation.landmarks)
         right_left_ratio, right_right_ratio = get_eye_aspect_ratios(right_observation.landmarks)
@@ -345,6 +368,54 @@ class StereoFaceAnalysisPipeline:
     def release(self) -> None:
         self._left_provider.release()
         self._right_provider.release()
+
+    def _debug_print_points(
+        self,
+        left_landmarks: Iterable,
+        right_landmarks: Iterable,
+        left_frame_width: int,
+        left_frame_height: int,
+        right_frame_width: int,
+        right_frame_height: int,
+        points_3d: Dict[int, np.ndarray],
+    ) -> None:
+        left_list = list(left_landmarks)
+        right_list = list(right_landmarks)
+
+        print("pre-triangulation points:")
+
+        for idx in self._debug_landmark_indices:
+            if idx >= len(left_list) or idx >= len(right_list):
+                continue
+            lp = left_list[idx]
+            rp = right_list[idx]
+            left_x = float(lp.x) * left_frame_width
+            left_y = float(lp.y) * left_frame_height
+            right_x = float(rp.x) * right_frame_width
+            right_y = float(rp.y) * right_frame_height
+            print(
+                "idx={} left=({}, {}) right=({}, {})".format(
+                    idx,
+                    left_x,
+                    left_y,
+                    right_x,
+                    right_y,
+                )
+            )
+
+        print("post-triangulation points:")
+        for idx in self._debug_landmark_indices:
+            p = points_3d.get(idx)
+            if p is None:
+                continue
+            print(
+                "idx={} xyz=({}, {}, {})".format(
+                    idx,
+                    float(p[0]),
+                    float(p[1]),
+                    float(p[2]),
+                )
+            )
 
     @staticmethod
     def _resolve_wink_direction_from_ratios(
