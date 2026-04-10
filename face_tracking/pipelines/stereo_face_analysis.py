@@ -140,7 +140,8 @@ class StereoHeadPoseDepthMapper:
     def _compute_angles(self, direction: np.ndarray) -> Tuple[float, float]:
         x, y, z = float(direction[0]), float(direction[1]), float(direction[2])
 
-        yaw = float(np.degrees(np.arctan2(x, -z)))
+        # Flip yaw sign so moving head right moves cursor right in stereo mode.
+        yaw = float(np.degrees(np.arctan2(-x, -z)))
         pitch = float(np.degrees(np.arctan2(y, -z)))
 
         yaw += self._calibration_yaw
