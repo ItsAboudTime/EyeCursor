@@ -71,6 +71,7 @@ class StereoHeadPoseDepthMapper:
 
         self._ema_direction: Optional[np.ndarray] = None
         self._ema_depth: Optional[float] = None
+        self._ema_points_3d: Dict[int, np.ndarray] = {}
 
         self._calibration_yaw = 0.0
         self._calibration_pitch = 0.0
@@ -97,11 +98,13 @@ class StereoHeadPoseDepthMapper:
         if any(index not in points_3d for index in needed):
             return None
 
-        left = points_3d[self._landmark_indices["left"]]
-        right = points_3d[self._landmark_indices["right"]]
-        top = points_3d[self._landmark_indices["top"]]
-        bottom = points_3d[self._landmark_indices["bottom"]]
-        front = points_3d[self._landmark_indices["front"]]
+        smoothed_points = self._smooth_points_3d(points_3d)
+
+        left = smoothed_points[self._landmark_indices["left"]]
+        right = smoothed_points[self._landmark_indices["right"]]
+        top = smoothed_points[self._landmark_indices["top"]]
+        bottom = smoothed_points[self._landmark_indices["bottom"]]
+        front = smoothed_points[self._landmark_indices["front"]]
 
         right_axis = right - left
         right_axis /= np.linalg.norm(right_axis) + 1e-9
@@ -136,6 +139,18 @@ class StereoHeadPoseDepthMapper:
             self._ema_depth = self.ema_alpha * depth + (1.0 - self.ema_alpha) * self._ema_depth
 
         return (sx, sy), (yaw, pitch), float(self._ema_depth)
+
+    def _smooth_points_3d(self, points_3d: Dict[int, np.ndarray]) -> Dict[int, np.ndarray]:
+        smoothed: Dict[int, np.ndarray] = {}
+        for idx, point in points_3d.items():
+            current = np.asarray(point, dtype=float)
+            previous = self._ema_points_3d.get(idx)
+            if previous is None:
+                self._ema_points_3d[idx] = current
+            else:
+                self._ema_points_3d[idx] = self.ema_alpha * current + (1.0 - self.ema_alpha) * previous
+            smoothed[idx] = self._ema_points_3d[idx]
+        return smoothed
 
     def _compute_angles(self, direction: np.ndarray) -> Tuple[float, float]:
         x, y, z = float(direction[0]), float(direction[1]), float(direction[2])
