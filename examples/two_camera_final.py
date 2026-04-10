@@ -86,7 +86,7 @@ def run_tracking_loop(cursor, stop_queue, control_queue):
             stereo_calibration=stereo_calibration,
             yaw_span=40.0,
             pitch_span=20.0,
-            ema_alpha=0.1,
+            ema_alpha=0.08,
         )
     except Exception as exc:
         print(f"Failed to initialize stereo analysis pipeline: {exc}")
