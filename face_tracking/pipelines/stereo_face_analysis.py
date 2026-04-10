@@ -113,6 +113,11 @@ class StereoHeadPoseDepthMapper:
         forward_axis /= np.linalg.norm(forward_axis) + 1e-9
         forward_axis = -forward_axis
 
+        # Keep the same convention as the one-camera pipeline: neutral look points toward -Z.
+        # Without this, the axis can flip and produce angles near +/-180 degrees.
+        if forward_axis[2] > 0.0:
+            forward_axis = -forward_axis
+
         if self._ema_direction is None:
             self._ema_direction = forward_axis
         else:
