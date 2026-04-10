@@ -27,34 +27,41 @@ from face_tracking.pipelines.stereo_face_analysis import StereoCalibration, Ster
 from ui.settings import SettingsWindow
 
 
-LEFT_CAMERA_INDEX = 0
-RIGHT_CAMERA_INDEX = 1
-BASELINE_METERS = 0.08
+LEFT_CAMERA_INDEX = 4
+RIGHT_CAMERA_INDEX = 6
+BASELINE_METERS = 0.0788
 
-# Placeholder intrinsics/distortion.
-K1 = np.array(
-    [
-        [700.0, 0.0, 640.0],
-        [0.0, 700.0, 360.0],
-        [0.0, 0.0, 1.0],
-    ],
-    dtype=np.float64,
-)
-D1 = np.zeros((5, 1), dtype=np.float64)
+K1 = np.array([
+    [542.975661, 0.000000, 347.621721],
+    [0.000000, 542.580855, 266.597383],
+    [0.000000, 0.000000, 1.000000],
+], dtype=np.float64)
 
-K2 = np.array(
-    [
-        [700.0, 0.0, 640.0],
-        [0.0, 700.0, 360.0],
-        [0.0, 0.0, 1.0],
-    ],
-    dtype=np.float64,
-)
-D2 = np.zeros((5, 1), dtype=np.float64)
+D1 = np.array([
+    [0.139821, -0.092846, 0.013859, 0.018398, -1.438426],
+], dtype=np.float64)
 
-R = np.eye(3, dtype=np.float64)
-# Parallel stereo rig with right camera baseline on +X in world terms maps to -baseline here.
-T = np.array([[-BASELINE_METERS], [0.0], [0.0]], dtype=np.float64)
+K2 = np.array([
+    [550.591389, 0.000000, 354.946646],
+    [0.000000, 547.426744, 257.201464],
+    [0.000000, 0.000000, 1.000000],
+], dtype=np.float64)
+
+D2 = np.array([
+    [0.061811, 0.096200, 0.009729, 0.016548, -0.325093],
+], dtype=np.float64)
+
+R = np.array([
+    [0.999955, -0.009529, -0.000044],
+    [0.009528, 0.999776, 0.018882],
+    [-0.000136, -0.018881, 0.999822],
+], dtype=np.float64)
+
+T = np.array([
+    [-0.078688],
+    [-0.000478],
+    [0.004312],
+], dtype=np.float64)
 
 BOTH_EYES_SQUINT_SCROLL_THRESHOLD = 0.3
 BOTH_EYES_OPEN_SCROLL_THRESHOLD = 0.65
