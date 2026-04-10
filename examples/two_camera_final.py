@@ -29,8 +29,9 @@ from ui.settings import SettingsWindow
 
 LEFT_CAMERA_INDEX = 0
 RIGHT_CAMERA_INDEX = 1
+BASELINE_METERS = 0.08
 
-# Replace these matrices with your own stereo calibration values.
+# Placeholder intrinsics/distortion.
 K1 = np.array(
     [
         [700.0, 0.0, 640.0],
@@ -52,7 +53,8 @@ K2 = np.array(
 D2 = np.zeros((5, 1), dtype=np.float64)
 
 R = np.eye(3, dtype=np.float64)
-T = np.array([[-0.06], [0.0], [0.0]], dtype=np.float64)
+# Parallel stereo rig with right camera baseline on +X in world terms maps to -baseline here.
+T = np.array([[-BASELINE_METERS], [0.0], [0.0]], dtype=np.float64)
 
 BOTH_EYES_SQUINT_SCROLL_THRESHOLD = 0.3
 BOTH_EYES_OPEN_SCROLL_THRESHOLD = 0.65
