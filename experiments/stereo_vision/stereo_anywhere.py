@@ -101,6 +101,27 @@ def compute_rectification_maps(image_size: tuple[int, int]):
 
 
 # ---------------------------------------------------------------------------
+# Monkey-patch xformers attention so DINOv2 works on CPU
+# ---------------------------------------------------------------------------
+def _patch_xformers_for_cpu():
+    """Replace xformers memory_efficient_attention with PyTorch native SDPA."""
+    import xformers.ops.fmha as fmha
+
+    def _cpu_attention(query, key, value, attn_bias=None, p=0.0, scale=None):
+        # xformers uses (B, M, H, K), PyTorch SDPA expects (B, H, M, K)
+        q = query.transpose(1, 2)
+        k = key.transpose(1, 2)
+        v = value.transpose(1, 2)
+        out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_bias, dropout_p=p, scale=scale)
+        return out.transpose(1, 2)
+
+    fmha.memory_efficient_attention = _cpu_attention
+    # Also patch the top-level import that DINOv2 uses
+    import xformers.ops
+    xformers.ops.memory_efficient_attention = _cpu_attention
+
+
+# ---------------------------------------------------------------------------
 # Model loading (Stereo Anywhere + Depth Anything V2)
 # ---------------------------------------------------------------------------
 def load_models(args):
@@ -108,6 +129,8 @@ def load_models(args):
     repo = os.path.expanduser(args.stereo_anywhere_repo)
     if repo not in sys.path:
         sys.path.insert(0, repo)
+
+    _patch_xformers_for_cpu()
 
     from models.stereoanywhere import StereoAnywhere
     from models.depth_anything_v2 import get_depth_anything_v2
@@ -249,8 +272,12 @@ def parse_args():
         help="Down-scale factor applied to frames before inference (default 2x for speed)",
     )
     p.add_argument(
+        "--num-frames", type=int, default=5,
+        help="Number of frames to capture and process (default 5)",
+    )
+    p.add_argument(
         "--save-dir", default="output/stereo_anywhere",
-        help="Directory to save snapshots when pressing 's'",
+        help="Directory to save output images",
     )
     return p.parse_args()
 
@@ -290,19 +317,19 @@ def main():
     wrapper, device = load_models(args)
     print(f"Model loaded on {device}.")
 
-    frame_idx = 0
-    cv2.namedWindow("Disparity", cv2.WINDOW_NORMAL)
-    cv2.namedWindow("Rectified Stereo", cv2.WINDOW_NORMAL)
-
-    print("Running — press 'q' or Esc to quit, 's' to save a snapshot.")
+    os.makedirs(args.save_dir, exist_ok=True)
+    num_frames = args.num_frames
+    print(f"Will capture and process {num_frames} frame(s), saving to {args.save_dir}/")
+    print("Press Ctrl+C to stop early.\n")
 
     try:
-        while True:
+        for frame_idx in range(num_frames):
             t0 = time.time()
 
             ok_l, left_bgr = left_cap.read()
             ok_r, right_bgr = right_cap.read()
             if not ok_l or not ok_r:
+                print(f"  Frame {frame_idx}: failed to read, skipping.")
                 continue
 
             # Rectify
@@ -333,44 +360,29 @@ def main():
             if args.iscale != 1.0:
                 disp_np = cv2.resize(disp_np, (w, h)) * args.iscale
 
-            fps = 1.0 / max(time.time() - t0, 1e-9)
+            elapsed = time.time() - t0
 
-            # Visualise
+            # Save outputs
+            tag = f"{frame_idx:06d}"
+            cv2.imwrite(os.path.join(args.save_dir, f"{tag}_left.png"), left_rect)
+            cv2.imwrite(os.path.join(args.save_dir, f"{tag}_right.png"), right_rect)
             disp_color = colorize_disparity(disp_np)
-            cv2.putText(
-                disp_color, f"FPS: {fps:.1f}  iters={args.iters}",
-                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2,
+            cv2.imwrite(os.path.join(args.save_dir, f"{tag}_disp.png"), disp_color)
+            np.save(os.path.join(args.save_dir, f"{tag}_disp.npy"), disp_np)
+
+            print(
+                f"  Frame {frame_idx}/{num_frames}  |  {elapsed:.1f}s  |  "
+                f"disp range [{disp_np.min():.1f}, {disp_np.max():.1f}]  |  "
+                f"saved {tag}_*.png"
             )
-            cv2.imshow("Disparity", disp_color)
-
-            # Side-by-side rectified view
-            stereo_vis = np.hstack([left_rect, right_rect])
-            # Draw horizontal lines to verify rectification alignment
-            for y in range(0, stereo_vis.shape[0], 40):
-                cv2.line(stereo_vis, (0, y), (stereo_vis.shape[1], y), (0, 255, 0), 1)
-            cv2.imshow("Rectified Stereo", stereo_vis)
-
-            key = cv2.waitKey(1) & 0xFF
-            if key in (27, ord("q")):
-                break
-            if key == ord("s"):
-                os.makedirs(args.save_dir, exist_ok=True)
-                tag = f"{frame_idx:06d}"
-                cv2.imwrite(os.path.join(args.save_dir, f"{tag}_left.png"), left_rect)
-                cv2.imwrite(os.path.join(args.save_dir, f"{tag}_right.png"), right_rect)
-                cv2.imwrite(os.path.join(args.save_dir, f"{tag}_disp.png"), disp_color)
-                np.save(os.path.join(args.save_dir, f"{tag}_disp.npy"), disp_np)
-                print(f"Saved snapshot {tag} to {args.save_dir}/")
-
-            frame_idx += 1
 
     except KeyboardInterrupt:
-        print("Interrupted.")
+        print("\nInterrupted.")
     finally:
         left_cap.release()
         right_cap.release()
-        cv2.destroyAllWindows()
 
+    print(f"\nDone. Results in {os.path.abspath(args.save_dir)}/")
     return 0
 
 

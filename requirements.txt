@@ -14,6 +14,12 @@ scipy
 scikit-image
 imageio
 pyyaml
+
+# Stereo Anywhere runtime
+kornia
+xformers
+tqdm
+albumentations
 # Open3D currently has no wheel for Python 3.13 in many environments.
 open3d; python_version < "3.13"
 

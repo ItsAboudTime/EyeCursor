@@ -10,3 +10,4 @@ head_track/signals/__pycache__/
 experiments/eye_gaze/__pycache__/
 experiments/head_pose/__pycache__/
 experiments/stereo_vision/__pycache__/
+output/*
