@@ -285,6 +285,8 @@ class StereoFaceAnalysisPipeline:
         yaw_span: float = 20.0,
         pitch_span: float = 10.0,
         ema_alpha: float = 0.25,
+        wink_closed_threshold: float = 0.3,
+        wink_open_threshold: float = 0.3,
         face_model_path: Optional[str] = None,
     ) -> None:
         self._left_provider = FaceLandmarksProvider(face_model_path=face_model_path)
@@ -329,6 +331,8 @@ class StereoFaceAnalysisPipeline:
             pitch_span=pitch_span,
             ema_alpha=ema_alpha,
         )
+        self._wink_closed_threshold = float(wink_closed_threshold)
+        self._wink_open_threshold = float(wink_open_threshold)
         self._debug_landmark_indices = [1, 10, 152, 234, 454]
 
     def analyze(
@@ -397,7 +401,7 @@ class StereoFaceAnalysisPipeline:
         left_eye_ratio = float(right_left_ratio)
         right_eye_ratio = float(right_right_ratio)
 
-        eye_closed_threshold = 0.3
+        eye_closed_threshold = self._wink_closed_threshold
         left_eye_state = "closed" if left_eye_ratio <= eye_closed_threshold else "open"
         right_eye_state = "closed" if right_eye_ratio <= eye_closed_threshold else "open"
 
@@ -413,6 +417,8 @@ class StereoFaceAnalysisPipeline:
         wink_direction = detect_wink_direction_from_ratios(
             left_ratio=left_eye_ratio,
             right_ratio=right_eye_ratio,
+            closed_threshold=self._wink_closed_threshold,
+            open_threshold=self._wink_open_threshold,
         )
 
         return FaceAnalysisResult(
