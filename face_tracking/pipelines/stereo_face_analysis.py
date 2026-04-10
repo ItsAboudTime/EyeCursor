@@ -7,7 +7,7 @@ import numpy as np
 
 from face_tracking.pipelines.face_analysis import FaceAnalysisResult
 from face_tracking.providers.face_landmarks import FaceLandmarksProvider
-from face_tracking.signals.wink import get_eye_aspect_ratios
+from face_tracking.signals.wink import detect_wink_direction_from_ratios, get_eye_aspect_ratios
 
 
 @dataclass
@@ -346,15 +346,14 @@ class StereoFaceAnalysisPipeline:
                 )
             )
 
-        left_left_ratio, left_right_ratio = get_eye_aspect_ratios(left_observation.landmarks)
         right_left_ratio, right_right_ratio = get_eye_aspect_ratios(right_observation.landmarks)
 
-        # Open-priority fusion: if either camera sees an eye as open, treat it as open.
-        left_eye_ratio = max(float(left_left_ratio), float(right_left_ratio))
-        right_eye_ratio = max(float(left_right_ratio), float(right_right_ratio))
-        wink_direction = self._resolve_wink_direction_from_ratios(
-            left_eye_ratio=left_eye_ratio,
-            right_eye_ratio=right_eye_ratio,
+        # Gesture detection is sourced from the right camera only.
+        left_eye_ratio = float(right_left_ratio)
+        right_eye_ratio = float(right_right_ratio)
+        wink_direction = detect_wink_direction_from_ratios(
+            left_ratio=left_eye_ratio,
+            right_ratio=right_eye_ratio,
         )
 
         return FaceAnalysisResult(
@@ -423,15 +422,3 @@ class StereoFaceAnalysisPipeline:
                 )
             )
 
-    @staticmethod
-    def _resolve_wink_direction_from_ratios(
-        left_eye_ratio: float,
-        right_eye_ratio: float,
-        closed_threshold: float = 0.3,
-        open_threshold: float = 0.3,
-    ) -> Optional[str]:
-        if left_eye_ratio < closed_threshold and right_eye_ratio > open_threshold:
-            return "left"
-        if right_eye_ratio < closed_threshold and left_eye_ratio > open_threshold:
-            return "right"
-        return None

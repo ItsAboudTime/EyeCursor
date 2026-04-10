@@ -33,6 +33,25 @@ def get_eye_aspect_ratios(
     return left_ratio, right_ratio
 
 
+def detect_wink_direction_from_ratios(
+    left_ratio: float,
+    right_ratio: float,
+    closed_threshold: float = 0.3,
+    open_threshold: float = 0.3,
+) -> Optional[str]:
+    """
+    Returns:
+      - "left" if left wink is detected
+      - "right" if right wink is detected
+      - None if no wink is detected
+    """
+    if left_ratio < closed_threshold and right_ratio > open_threshold:
+        return "left"
+    if right_ratio < closed_threshold and left_ratio > open_threshold:
+        return "right"
+    return None
+
+
 def detect_wink_direction(
     landmarks: Iterable,
     left_eye_indices: Sequence[int] = LEFT_EYE_INDICES,
@@ -52,8 +71,9 @@ def detect_wink_direction(
         right_eye_indices=right_eye_indices,
     )
 
-    if left_ratio < closed_threshold and right_ratio > open_threshold:
-        return "left"
-    if right_ratio < closed_threshold and left_ratio > open_threshold:
-        return "right"
-    return None
+    return detect_wink_direction_from_ratios(
+        left_ratio=left_ratio,
+        right_ratio=right_ratio,
+        closed_threshold=closed_threshold,
+        open_threshold=open_threshold,
+    )
