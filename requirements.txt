@@ -6,13 +6,23 @@ opencv-python>=4.8
 certifi>=2024.0.0
 mediapipe>=0.10
 
+# Fast-FoundationStereo runtime
+timm
+einops
+omegaconf
+scipy
+scikit-image
+imageio
+pyyaml
+# Open3D currently has no wheel for Python 3.13 in many environments.
+open3d; python_version < "3.13"
+
 # macOS-only
 pyobjc-core==11.1; sys_platform == "darwin"
 pyobjc-framework-Cocoa==11.1; sys_platform == "darwin"
 pyobjc-framework-Quartz==11.1; sys_platform == "darwin"
 
 # Linux-only
-scipy; sys_platform == "linux"
 pynput; sys_platform == "linux"
 keyboard; sys_platform == "linux"
 eyeGestures; sys_platform == "linux"
