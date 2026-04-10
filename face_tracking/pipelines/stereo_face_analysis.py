@@ -7,7 +7,7 @@ import numpy as np
 
 from face_tracking.pipelines.face_analysis import FaceAnalysisResult
 from face_tracking.providers.face_landmarks import FaceLandmarksProvider
-from face_tracking.signals.wink import get_eye_aspect_ratios
+from face_tracking.signals.wink import detect_wink_direction_from_ratios, get_eye_aspect_ratios
 
 
 @dataclass
@@ -92,31 +92,17 @@ class StereoHeadPoseDepthMapper:
         points_3d: Dict[int, np.ndarray],
         screen_width: int,
         screen_height: int,
+        facial_transformation_matrix: Optional[Sequence[Sequence[float]]] = None,
     ) -> Optional[Tuple[Tuple[int, int], Tuple[float, float], float]]:
         needed = [self._landmark_indices[name] for name in ("left", "right", "top", "bottom", "front")]
         if any(index not in points_3d for index in needed):
             return None
 
-        left = points_3d[self._landmark_indices["left"]]
-        right = points_3d[self._landmark_indices["right"]]
-        top = points_3d[self._landmark_indices["top"]]
-        bottom = points_3d[self._landmark_indices["bottom"]]
         front = points_3d[self._landmark_indices["front"]]
 
-        right_axis = right - left
-        right_axis /= np.linalg.norm(right_axis) + 1e-9
-
-        up_axis = top - bottom
-        up_axis /= np.linalg.norm(up_axis) + 1e-9
-
-        forward_axis = np.cross(right_axis, up_axis)
-        forward_axis /= np.linalg.norm(forward_axis) + 1e-9
-        forward_axis = -forward_axis
-
-        # Keep the same convention as the one-camera pipeline: neutral look points toward -Z.
-        # Without this, the axis can flip and produce angles near +/-180 degrees.
-        if forward_axis[2] > 0.0:
-            forward_axis = -forward_axis
+        forward_axis = self._forward_axis_from_matrix(facial_transformation_matrix)
+        if forward_axis is None:
+            forward_axis = self._forward_axis_from_points(points_3d)
 
         if self._ema_direction is None:
             self._ema_direction = forward_axis
@@ -136,6 +122,64 @@ class StereoHeadPoseDepthMapper:
             self._ema_depth = self.ema_alpha * depth + (1.0 - self.ema_alpha) * self._ema_depth
 
         return (sx, sy), (yaw, pitch), float(self._ema_depth)
+
+    def _forward_axis_from_matrix(
+        self,
+        facial_transformation_matrix: Optional[Sequence[Sequence[float]]],
+    ) -> Optional[np.ndarray]:
+        if facial_transformation_matrix is None:
+            return None
+
+        matrix = np.asarray(facial_transformation_matrix, dtype=float)
+        if matrix.shape == (16,):
+            matrix = matrix.reshape(4, 4)
+        if matrix.shape != (4, 4):
+            return None
+
+        rotation = matrix[:3, :3]
+        try:
+            u, _, vh = np.linalg.svd(rotation)
+            rotation = u @ vh
+            if np.linalg.det(rotation) < 0:
+                u[:, -1] *= -1.0
+                rotation = u @ vh
+        except Exception:
+            pass
+
+        forward_axis = -rotation[:, 2]
+        norm = np.linalg.norm(forward_axis)
+        if norm < 1e-9:
+            return None
+
+        forward_axis = forward_axis / norm
+        if forward_axis[2] > 0.0:
+            forward_axis = -forward_axis
+        return forward_axis
+
+    def _forward_axis_from_points(self, points_3d: Dict[int, np.ndarray]) -> np.ndarray:
+        left = points_3d[self._landmark_indices["left"]]
+        right = points_3d[self._landmark_indices["right"]]
+        top = points_3d[self._landmark_indices["top"]]
+        bottom = points_3d[self._landmark_indices["bottom"]]
+
+        right_axis = right - left
+        right_axis /= np.linalg.norm(right_axis) + 1e-9
+
+        # Orthogonalize the up axis against right to reduce roll leakage into yaw.
+        up_axis = top - bottom
+        up_axis = up_axis - np.dot(up_axis, right_axis) * right_axis
+        up_axis /= np.linalg.norm(up_axis) + 1e-9
+
+        forward_axis = np.cross(right_axis, up_axis)
+        forward_axis /= np.linalg.norm(forward_axis) + 1e-9
+        forward_axis = -forward_axis
+
+        # Keep the same convention as the one-camera pipeline: neutral look points toward -Z.
+        # Without this, the axis can flip and produce angles near +/-180 degrees.
+        if forward_axis[2] > 0.0:
+            forward_axis = -forward_axis
+
+        return forward_axis
 
     def _compute_angles(self, direction: np.ndarray) -> Tuple[float, float]:
         x, y, z = float(direction[0]), float(direction[1]), float(direction[2])
@@ -326,6 +370,7 @@ class StereoFaceAnalysisPipeline:
             points_3d=points_3d,
             screen_width=screen_width,
             screen_height=screen_height,
+            facial_transformation_matrix=left_observation.facial_transformation_matrix,
         )
 
         screen_position: Optional[Tuple[int, int]] = None
@@ -346,15 +391,14 @@ class StereoFaceAnalysisPipeline:
                 )
             )
 
-        left_left_ratio, left_right_ratio = get_eye_aspect_ratios(left_observation.landmarks)
         right_left_ratio, right_right_ratio = get_eye_aspect_ratios(right_observation.landmarks)
 
-        # Open-priority fusion: if either camera sees an eye as open, treat it as open.
-        left_eye_ratio = max(float(left_left_ratio), float(right_left_ratio))
-        right_eye_ratio = max(float(left_right_ratio), float(right_right_ratio))
-        wink_direction = self._resolve_wink_direction_from_ratios(
-            left_eye_ratio=left_eye_ratio,
-            right_eye_ratio=right_eye_ratio,
+        # Gesture detection is sourced from the right camera only.
+        left_eye_ratio = float(right_left_ratio)
+        right_eye_ratio = float(right_right_ratio)
+        wink_direction = detect_wink_direction_from_ratios(
+            left_ratio=left_eye_ratio,
+            right_ratio=right_eye_ratio,
         )
 
         return FaceAnalysisResult(
@@ -423,15 +467,3 @@ class StereoFaceAnalysisPipeline:
                 )
             )
 
-    @staticmethod
-    def _resolve_wink_direction_from_ratios(
-        left_eye_ratio: float,
-        right_eye_ratio: float,
-        closed_threshold: float = 0.3,
-        open_threshold: float = 0.3,
-    ) -> Optional[str]:
-        if left_eye_ratio < closed_threshold and right_eye_ratio > open_threshold:
-            return "left"
-        if right_eye_ratio < closed_threshold and left_eye_ratio > open_threshold:
-            return "right"
-        return None
