@@ -396,6 +396,20 @@ class StereoFaceAnalysisPipeline:
         # Gesture detection is sourced from the right camera only.
         left_eye_ratio = float(right_left_ratio)
         right_eye_ratio = float(right_right_ratio)
+
+        eye_closed_threshold = 0.3
+        left_eye_state = "closed" if left_eye_ratio <= eye_closed_threshold else "open"
+        right_eye_state = "closed" if right_eye_ratio <= eye_closed_threshold else "open"
+
+        print(
+            "left_eye_ratio={:.4f} ({}) | right_eye_ratio={:.4f} ({})".format(
+                left_eye_ratio,
+                left_eye_state,
+                right_eye_ratio,
+                right_eye_state,
+            )
+        )
+
         wink_direction = detect_wink_direction_from_ratios(
             left_ratio=left_eye_ratio,
             right_ratio=right_eye_ratio,
@@ -466,4 +480,3 @@ class StereoFaceAnalysisPipeline:
                     float(p[2]),
                 )
             )
-
