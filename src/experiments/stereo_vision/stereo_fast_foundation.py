@@ -211,89 +211,18 @@ class FastFoundationStereoRealtime:
         return vis
 
 
-class LivePointCloudViewer:
-    def __init__(
-        self,
-        intrinsics: StereoIntrinsics,
-        scale: float,
-        z_far: float,
-        max_points: int,
-        point_size: float,
-    ) -> None:
-        try:
-            import open3d as o3d  # type: ignore
-        except Exception as exc:
-            raise RuntimeError(
-                "open3d is required for 3D point cloud GUI. Install it with: pip install open3d"
-            ) from exc
-
-        self.o3d = o3d
-        self.fx = float(intrinsics.fx * scale)
-        self.fy = float(intrinsics.fy * scale)
-        self.cx = float(intrinsics.cx * scale)
-        self.cy = float(intrinsics.cy * scale)
-        self.z_far = float(z_far)
-        self.max_points = int(max_points)
-
-        self.vis = self.o3d.visualization.Visualizer()
-        self.vis.create_window(window_name="Stereo 3D Point Cloud", width=1280, height=720)
-        self.pcd = self.o3d.geometry.PointCloud()
-        self.vis.add_geometry(self.pcd)
-
-        render_opt = self.vis.get_render_option()
-        render_opt.point_size = float(point_size)
-        render_opt.background_color = np.array([0.04, 0.04, 0.04], dtype=np.float64)
-
-    def _depth_to_points(self, depth: np.ndarray, color_rgb: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        h, w = depth.shape
-        valid = np.isfinite(depth) & (depth > 0.0) & (depth <= self.z_far)
-        if not np.any(valid):
-            return np.empty((0, 3), dtype=np.float32), np.empty((0, 3), dtype=np.float32)
-
-        ys, xs = np.where(valid)
-        z = depth[ys, xs]
-        x = (xs.astype(np.float32) - self.cx) * z / max(1e-6, self.fx)
-        y = (ys.astype(np.float32) - self.cy) * z / max(1e-6, self.fy)
-        points = np.stack([x, y, z], axis=1).astype(np.float32)
-
-        colors = color_rgb[ys, xs].astype(np.float32) / 255.0
-
-        n = points.shape[0]
-        if n > self.max_points:
-            # Uniform stride sampling avoids expensive random indexing every frame.
-            stride = max(1, n // self.max_points)
-            points = points[::stride]
-            colors = colors[::stride]
-
-        return points, colors
-
-    def update(self, depth: np.ndarray, color_rgb: np.ndarray) -> None:
-        points, colors = self._depth_to_points(depth, color_rgb)
-        self.pcd.points = self.o3d.utility.Vector3dVector(points.astype(np.float64))
-        self.pcd.colors = self.o3d.utility.Vector3dVector(colors.astype(np.float64))
-        self.vis.update_geometry(self.pcd)
-        self.vis.poll_events()
-        self.vis.update_renderer()
-
-    def close(self) -> None:
-        self.vis.destroy_window()
-
-
 def run_fast_foundation_stereo_demo(
     fast_foundation_repo: str | Path,
     model_path: str | Path,
     intrinsic_file: str | Path,
-    left_camera_index: int = 0, # change this as needed
-    right_camera_index: int = 1, # change this as needed
+    left_camera_index: int = 6,
+    right_camera_index: int = 4,
     width: int = 640,
     height: int = 480,
     scale: float = 0.5,
     valid_iters: int = 4,
     max_disp: int = 192,
     z_far: float = 5.0,
-    show_point_cloud: bool = True,
-    pc_max_points: int = 120_000,
-    pc_point_size: float = 1.0,
     infer_every_n_frames: int = 2,
     show_depth_panel: bool = False,
     camera_probe_max_index: int = 10,
@@ -331,21 +260,6 @@ def run_fast_foundation_stereo_demo(
 
     print("Fast-FoundationStereo live stereo running.")
     print("Press 'q' or ESC to quit.")
-
-    point_cloud_viewer: Optional[LivePointCloudViewer] = None
-    if show_point_cloud:
-        try:
-            point_cloud_viewer = LivePointCloudViewer(
-                intrinsics=engine.intrinsics,
-                scale=engine.scale,
-                z_far=z_far,
-                max_points=pc_max_points,
-                point_size=pc_point_size,
-            )
-            print("3D point cloud window enabled.")
-        except RuntimeError as exc:
-            print(f"Warning: {exc}")
-            print("Continuing without 3D point cloud window.")
 
     fps_ema: Optional[float] = None
     prev_t = time.perf_counter()
@@ -391,9 +305,6 @@ def run_fast_foundation_stereo_demo(
             if show_depth_panel:
                 depth_vis = engine.colorize_depth(depth, z_far=float(z_far))
 
-            if point_cloud_viewer is not None:
-                point_cloud_viewer.update(depth=depth, color_rgb=left_rgb)
-
             # Lightweight display path for higher FPS.
             display_items = [
                 cv2.cvtColor(left_rgb, cv2.COLOR_RGB2BGR),
@@ -428,8 +339,6 @@ def run_fast_foundation_stereo_demo(
 
             frame_idx += 1
     finally:
-        if point_cloud_viewer is not None:
-            point_cloud_viewer.close()
         left_cap.release()
         right_cap.release()
         cv2.destroyAllWindows()
@@ -459,32 +368,14 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Path to stereo intrinsic text file (line1: flattened K, line2: baseline meters)",
     )
-    parser.add_argument("--left-camera-index", type=int, default=0)
-    parser.add_argument("--right-camera-index", type=int, default=1)
+    parser.add_argument("--left-camera-index", type=int, default=6)
+    parser.add_argument("--right-camera-index", type=int, default=4)
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--scale", type=float, default=0.35)
     parser.add_argument("--valid-iters", type=int, default=2)
     parser.add_argument("--max-disp", type=int, default=128)
     parser.add_argument("--z-far", type=float, default=5.0)
-    parser.add_argument(
-        "--show-point-cloud",
-        type=int,
-        default=1,
-        help="Show live Open3D point cloud window (1=yes, 0=no)",
-    )
-    parser.add_argument(
-        "--pc-max-points",
-        type=int,
-        default=120000,
-        help="Maximum points to render in 3D viewer per frame",
-    )
-    parser.add_argument(
-        "--pc-point-size",
-        type=float,
-        default=1.0,
-        help="Point size for Open3D visualization",
-    )
     parser.add_argument(
         "--infer-every-n-frames",
         type=int,
@@ -535,9 +426,6 @@ def main() -> int:
         valid_iters=args.valid_iters,
         max_disp=args.max_disp,
         z_far=args.z_far,
-        show_point_cloud=bool(args.show_point_cloud),
-        pc_max_points=args.pc_max_points,
-        pc_point_size=args.pc_point_size,
         infer_every_n_frames=args.infer_every_n_frames,
         show_depth_panel=bool(args.show_depth_panel),
         camera_probe_max_index=args.camera_probe_max_index,
