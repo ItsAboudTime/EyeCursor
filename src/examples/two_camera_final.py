@@ -27,8 +27,8 @@ from src.face_tracking.pipelines.stereo_face_analysis import StereoCalibration, 
 from src.ui.settings import SettingsWindow
 
 
-LEFT_CAMERA_INDEX = 4
-RIGHT_CAMERA_INDEX = 6
+LEFT_CAMERA_INDEX = 0
+RIGHT_CAMERA_INDEX = 0
 BASELINE_METERS = 0.0788
 
 K1 = np.array([
@@ -69,6 +69,7 @@ EYE_SCROLL_HOLD_SECONDS = 1.0
 EYE_SCROLL_DELTA = 120
 WINK_EYE_CLOSED_THRESHOLD = 0.3
 WINK_EYE_OPEN_THRESHOLD = 0.3
+EMA_ALPHA = 0.08
 
 
 def run_tracking_loop(cursor, stop_queue, control_queue):
@@ -97,7 +98,7 @@ def run_tracking_loop(cursor, stop_queue, control_queue):
             stereo_calibration=stereo_calibration,
             yaw_span=40.0,
             pitch_span=20.0,
-            ema_alpha=0.08,
+            ema_alpha=EMA_ALPHA,
             wink_closed_threshold=WINK_EYE_CLOSED_THRESHOLD,
             wink_open_threshold=WINK_EYE_OPEN_THRESHOLD,
         )
