@@ -1,6 +1,7 @@
 git+https://github.com/edavalosanaya/L2CS-Net.git@main
 torch
 torchvision
+dlib
 numpy>=1.24
 opencv-python>=4.8
 certifi>=2024.0.0
