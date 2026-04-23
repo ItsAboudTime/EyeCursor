@@ -11,3 +11,6 @@ experiments/eye_gaze/__pycache__/
 experiments/head_pose/__pycache__/
 experiments/stereo_vision/__pycache__/
 output/*
+face_model.txt
+epoch_24_ckpt.pth.tar
+shape_predictor_68_face_landmarks.dat

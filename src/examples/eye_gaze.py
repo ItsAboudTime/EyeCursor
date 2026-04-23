@@ -1,26 +1,9 @@
-"""
-Realtime ETH-XGaze-style gaze estimation from webcam.
-
-This implementation is intentionally close to ETH-XGaze demo.py:
-1) detect 68-point landmarks with dlib,
-2) estimate head pose via solvePnP,
-3) normalize/crop a face patch,
-4) run a ResNet gaze model,
-5) output gaze yaw/pitch.
-
-Usage:
-  python -m src.examples.eth_xgaze_realtime --weights /path/to/epoch_24_ckpt.pth.tar
-
-Controls:
-  - q / ESC: quit
-"""
-
 from __future__ import annotations
 
 import argparse
 import pathlib
 import sys
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import cv2
 import dlib
@@ -29,6 +12,8 @@ import torch
 import torch.nn as nn
 from torchvision import transforms
 from torchvision import models
+
+from src.cursor import create_cursor
 
 
 TRANSFORM = transforms.Compose(
@@ -67,6 +52,7 @@ class XGazeNetwork(nn.Module):
 class RealtimeETHXGaze:
     # Dlib 68-point indices: eye corners + nose corners.
     _LANDMARK_SUBSET = [36, 39, 42, 45, 31, 35]
+    _CALIB_WINDOW_NAME = "Gaze Calibration"
 
     def __init__(
         self,
@@ -84,6 +70,12 @@ class RealtimeETHXGaze:
         predictor_path: Optional[pathlib.Path] = None,
         face_model_path: Optional[pathlib.Path] = None,
         camera_calib_path: Optional[pathlib.Path] = None,
+        cursor_enabled: bool = True,
+        cursor_yaw_span: float = 0.6,
+        cursor_pitch_span: float = 0.4,
+        cursor_ema_alpha: float = 0.1,
+        cursor_invert_x: bool = False,
+        cursor_invert_y: bool = False,
     ) -> None:
         self.weights = pathlib.Path(weights).expanduser().resolve()
         if not self.weights.exists():
@@ -98,6 +90,29 @@ class RealtimeETHXGaze:
         self.fy = fy
         self.cx = cx
         self.cy = cy
+
+        self.cursor_enabled = bool(cursor_enabled)
+        self.cursor_yaw_span = float(cursor_yaw_span)
+        self.cursor_pitch_span = float(cursor_pitch_span)
+        self.cursor_ema_alpha = float(cursor_ema_alpha)
+        self.cursor_invert_x = bool(cursor_invert_x)
+        self.cursor_invert_y = bool(cursor_invert_y)
+
+        if self.cursor_yaw_span <= 0.0:
+            raise ValueError("cursor_yaw_span must be > 0")
+        if self.cursor_pitch_span <= 0.0:
+            raise ValueError("cursor_pitch_span must be > 0")
+        if not (0.0 < self.cursor_ema_alpha <= 1.0):
+            raise ValueError("cursor_ema_alpha must be in (0, 1]")
+
+        self.cursor = None
+        self._cursor_bounds: Optional[Tuple[int, int, int, int]] = None
+        self._cursor_calibration_yaw = 0.0
+        self._cursor_calibration_pitch = 0.0
+        self._cursor_ema_yaw: Optional[float] = None
+        self._cursor_ema_pitch: Optional[float] = None
+        self._cursor_affine: Optional[np.ndarray] = None
+        self._cursor_norm_bounds: Optional[Tuple[float, float, float, float]] = None
 
         self.predictor_path = (
             pathlib.Path(predictor_path).expanduser().resolve()
@@ -139,7 +154,23 @@ class RealtimeETHXGaze:
         self.camera_distortion = np.zeros((5, 1), dtype=np.float64)
         self._load_camera_calibration()
 
+        self._init_cursor()
+
         self.cap: Optional[cv2.VideoCapture] = None
+
+    def _init_cursor(self) -> None:
+        if not self.cursor_enabled:
+            return
+
+        try:
+            self.cursor = create_cursor()
+            self._cursor_bounds = self.cursor.get_virtual_bounds()
+            print(f"cursor control enabled; virtual bounds={self._cursor_bounds}")
+        except Exception as exc:
+            self.cursor = None
+            self._cursor_bounds = None
+            self.cursor_enabled = False
+            print(f"warning: failed to initialize cursor control: {exc}")
 
     @staticmethod
     def _select_device(name: str) -> torch.device:
@@ -321,6 +352,383 @@ class RealtimeETHXGaze:
         cv2.arrowedLine(out, start, end, (0, 255, 255), 2, cv2.LINE_AA, tipLength=0.2)
         return out
 
+    @staticmethod
+    def _clip01(value: float) -> float:
+        return max(0.0, min(1.0, value))
+
+    def _infer_gaze_from_frame(
+        self,
+        frame_bgr: np.ndarray,
+    ) -> Optional[Tuple[float, float, np.ndarray, np.ndarray]]:
+        frame_h, frame_w = frame_bgr.shape[:2]
+        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        detected_faces = self.face_detector(rgb, 0)
+        if len(detected_faces) == 0:
+            return None
+
+        shape = self.shape_predictor(frame_bgr, detected_faces[0])
+        landmarks = self._shape_to_np(shape)
+
+        landmarks_sub = landmarks[self._LANDMARK_SUBSET, :].astype(np.float64)
+        landmarks_sub = landmarks_sub.reshape(6, 1, 2)
+
+        camera_matrix = self._camera_matrix(frame_w, frame_h)
+        rvec, tvec = self._estimate_head_pose(
+            landmarks_sub=landmarks_sub,
+            face_model_pts=self.face_model_pts,
+            camera_matrix=camera_matrix,
+            camera_distortion=self.camera_distortion,
+        )
+        face_patch, landmarks_normalized = self._normalize_face_patch(
+            frame_bgr=frame_bgr,
+            landmarks_2d=landmarks_sub,
+            rvec=rvec,
+            tvec=tvec,
+            camera_matrix=camera_matrix,
+        )
+
+        with torch.no_grad():
+            input_tensor = self._preprocess(face_patch, self.device)
+            pred = self.model(input_tensor).squeeze(0).detach().cpu().numpy()
+
+        pitch_rad = float(pred[0])
+        yaw_rad = float(pred[1])
+        return pitch_rad, yaw_rad, face_patch, landmarks_normalized
+
+    @staticmethod
+    def _calibration_points() -> List[Tuple[float, float]]:
+        # Start from center to settle the user, then spread to all edges/corners.
+        return [
+            (0.50, 0.50),
+            (0.08, 0.08),
+            (0.50, 0.08),
+            (0.92, 0.08),
+            (0.08, 0.50),
+            (0.92, 0.50),
+            (0.08, 0.92),
+            (0.50, 0.92),
+            (0.92, 0.92),
+        ]
+
+    @staticmethod
+    def _target_abs_point(
+        bounds: Tuple[int, int, int, int],
+        target_norm: Tuple[float, float],
+    ) -> Tuple[int, int]:
+        minx, miny, maxx, maxy = bounds
+        width = maxx - minx + 1
+        height = maxy - miny + 1
+        tx = minx + int(round(target_norm[0] * (width - 1)))
+        ty = miny + int(round(target_norm[1] * (height - 1)))
+        return tx, ty
+
+    def _draw_calibration_screen(
+        self,
+        screen_size: Tuple[int, int],
+        target_norm: Tuple[float, float],
+        step_index: int,
+        step_total: int,
+        msg: str,
+    ) -> np.ndarray:
+        width, height = screen_size
+        canvas = np.zeros((height, width, 3), dtype=np.uint8)
+
+        tx = int(round(target_norm[0] * (width - 1)))
+        ty = int(round(target_norm[1] * (height - 1)))
+
+        cv2.circle(canvas, (tx, ty), 34, (80, 80, 80), 2, cv2.LINE_AA)
+        cv2.circle(canvas, (tx, ty), 16, (0, 255, 255), -1, cv2.LINE_AA)
+        cv2.line(canvas, (tx - 45, ty), (tx + 45, ty), (0, 180, 220), 2, cv2.LINE_AA)
+        cv2.line(canvas, (tx, ty - 45), (tx, ty + 45), (0, 180, 220), 2, cv2.LINE_AA)
+
+        cv2.putText(
+            canvas,
+            f"Calibration {step_index}/{step_total}",
+            (36, 52),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.0,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            canvas,
+            "Look at the marker, then press SPACE to capture.",
+            (36, 92),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (220, 220, 220),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            canvas,
+            "ESC/q: quit  |  s: skip calibration",
+            (36, 126),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.75,
+            (170, 170, 170),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            canvas,
+            msg,
+            (36, height - 42),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        return canvas
+
+    def _cursor_gaze_components(self, yaw_rad: float, pitch_rad: float) -> Tuple[float, float]:
+        yaw_adj = yaw_rad
+        pitch_adj = pitch_rad
+        if self.cursor_invert_x:
+            yaw_adj = -yaw_adj
+        if self.cursor_invert_y:
+            pitch_adj = -pitch_adj
+        return yaw_adj, pitch_adj
+
+    def _capture_gaze_average(
+        self,
+        cap: cv2.VideoCapture,
+        sample_count: int = 24,
+        max_frames: int = 140,
+    ) -> Optional[Tuple[float, float, float, float]]:
+        samples: List[Tuple[float, float]] = []
+        for _ in range(max_frames):
+            ok, frame_bgr = cap.read()
+            if not ok:
+                continue
+            try:
+                result = self._infer_gaze_from_frame(frame_bgr)
+            except Exception:
+                result = None
+            if result is None:
+                continue
+
+            pitch_rad, yaw_rad, _, _ = result
+            yaw_adj, pitch_adj = self._cursor_gaze_components(yaw_rad=yaw_rad, pitch_rad=pitch_rad)
+            samples.append((yaw_adj, pitch_adj))
+
+            if len(samples) >= sample_count:
+                break
+
+        if len(samples) < max(8, sample_count // 2):
+            return None
+
+        arr = np.asarray(samples, dtype=np.float64)
+        med = np.median(arr, axis=0)
+        delta = arr - med.reshape(1, 2)
+        dist = np.linalg.norm(delta, axis=1)
+        keep = dist <= np.percentile(dist, 80)
+        robust = arr[keep]
+        if robust.shape[0] < 6:
+            robust = arr
+
+        mean_yaw = float(np.mean(robust[:, 0]))
+        mean_pitch = float(np.mean(robust[:, 1]))
+        std_yaw = float(np.std(robust[:, 0]))
+        std_pitch = float(np.std(robust[:, 1]))
+        return mean_yaw, mean_pitch, std_yaw, std_pitch
+
+    def _prepare_calibration_window(self, screen_w: int, screen_h: int) -> None:
+        cv2.namedWindow(self._CALIB_WINDOW_NAME, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(self._CALIB_WINDOW_NAME, screen_w, screen_h)
+        cv2.moveWindow(self._CALIB_WINDOW_NAME, 0, 0)
+        try:
+            cv2.setWindowProperty(self._CALIB_WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+        except Exception:
+            pass
+
+    def _fit_cursor_calibration(
+        self,
+        gaze_samples: np.ndarray,
+        target_points: np.ndarray,
+    ) -> bool:
+        affine, inlier_mask = cv2.estimateAffine2D(
+            gaze_samples,
+            target_points,
+            method=cv2.RANSAC,
+            ransacReprojThreshold=0.06,
+            maxIters=3000,
+            confidence=0.995,
+        )
+        if affine is None:
+            return False
+
+        ones = np.ones((gaze_samples.shape[0], 1), dtype=np.float64)
+        augmented = np.concatenate([gaze_samples, ones], axis=1)
+        pred = np.dot(augmented, affine.T)
+
+        errors = np.linalg.norm(pred - target_points, axis=1)
+        mean_err = float(np.mean(errors))
+        max_err = float(np.max(errors))
+
+        inliers = int(np.sum(inlier_mask)) if inlier_mask is not None else gaze_samples.shape[0]
+        min_inliers = max(6, int(round(gaze_samples.shape[0] * 0.67)))
+        if inliers < min_inliers or mean_err > 0.12 or max_err > 0.24:
+            return False
+
+        min_x = float(np.min(pred[:, 0]))
+        max_x = float(np.max(pred[:, 0]))
+        min_y = float(np.min(pred[:, 1]))
+        max_y = float(np.max(pred[:, 1]))
+        if (max_x - min_x) < 1e-4 or (max_y - min_y) < 1e-4:
+            return False
+
+        self._cursor_affine = affine.astype(np.float64)
+        self._cursor_norm_bounds = (min_x, max_x, min_y, max_y)
+        self._cursor_ema_yaw = None
+        self._cursor_ema_pitch = None
+        print(
+            f"cursor calibration complete: inliers={inliers}/{gaze_samples.shape[0]}, "
+            f"mean_err={mean_err:.4f}, max_err={max_err:.4f}"
+        )
+        return True
+
+    def _run_cursor_calibration(self, cap: cv2.VideoCapture) -> bool:
+        if not self.cursor_enabled or self.cursor is None or self._cursor_bounds is None:
+            return False
+
+        minx, miny, maxx, maxy = self._cursor_bounds
+        screen_w = maxx - minx + 1
+        screen_h = maxy - miny + 1
+        if screen_w <= 10 or screen_h <= 10:
+            print("warning: invalid screen bounds for calibration; skipping")
+            return False
+
+        target_norms = self._calibration_points()
+        collected_gaze: List[Tuple[float, float]] = []
+        collected_targets: List[Tuple[float, float]] = []
+
+        self._prepare_calibration_window(screen_w, screen_h)
+        print("Starting startup gaze calibration. Follow the on-screen points.")
+
+        for idx, target_norm in enumerate(target_norms, start=1):
+            msg = "Hold gaze on target, press SPACE."
+            while True:
+                canvas = self._draw_calibration_screen(
+                    screen_size=(screen_w, screen_h),
+                    target_norm=target_norm,
+                    step_index=idx,
+                    step_total=len(target_norms),
+                    msg=msg,
+                )
+                cv2.imshow(self._CALIB_WINDOW_NAME, canvas)
+
+                key = cv2.waitKey(1) & 0xFF
+                if key in (27, ord("q")):
+                    return False
+                if key == ord("s"):
+                    print("Calibration skipped by user.")
+                    cv2.destroyWindow(self._CALIB_WINDOW_NAME)
+                    return False
+                if key != ord(" "):
+                    continue
+
+                sample = self._capture_gaze_average(cap=cap)
+                if sample is None:
+                    msg = "Face/gaze not stable. Re-align and press SPACE again."
+                    continue
+
+                mean_yaw, mean_pitch, std_yaw, std_pitch = sample
+                stability = max(std_yaw, std_pitch)
+                if stability > 0.06:
+                    msg = f"Too noisy (stability={stability:.3f}). Keep still and retry."
+                    continue
+
+                collected_gaze.append((mean_yaw, mean_pitch))
+                collected_targets.append(target_norm)
+
+                target_abs = self._target_abs_point(self._cursor_bounds, target_norm)
+                self.cursor.step_towards(*target_abs)
+
+                msg = f"Captured: yaw={mean_yaw:.3f}, pitch={mean_pitch:.3f}"
+                break
+
+        cv2.destroyWindow(self._CALIB_WINDOW_NAME)
+
+        gaze_np = np.asarray(collected_gaze, dtype=np.float64)
+        target_np = np.asarray(collected_targets, dtype=np.float64)
+        if gaze_np.shape[0] < 6:
+            print("warning: insufficient calibration points; falling back to span mapping")
+            return False
+
+        ok = self._fit_cursor_calibration(gaze_samples=gaze_np, target_points=target_np)
+        if not ok:
+            print("warning: calibration quality was not sufficient; falling back to span mapping")
+            return False
+        return True
+
+    def _calibrate_cursor_center(self, yaw_rad: float, pitch_rad: float) -> None:
+        self._cursor_calibration_yaw = -yaw_rad
+        self._cursor_calibration_pitch = -pitch_rad
+        self._cursor_ema_yaw = None
+        self._cursor_ema_pitch = None
+        print(
+            f"cursor calibrated: yaw_offset={self._cursor_calibration_yaw:.4f}, "
+            f"pitch_offset={self._cursor_calibration_pitch:.4f}"
+        )
+
+    def _cursor_target_from_gaze(self, yaw_rad: float, pitch_rad: float) -> Optional[Tuple[int, int]]:
+        if not self.cursor_enabled or self.cursor is None or self._cursor_bounds is None:
+            return None
+
+        yaw_adj, pitch_adj = self._cursor_gaze_components(yaw_rad=yaw_rad, pitch_rad=pitch_rad)
+        yaw_adj += self._cursor_calibration_yaw
+        pitch_adj += self._cursor_calibration_pitch
+
+        if self._cursor_ema_yaw is None:
+            self._cursor_ema_yaw = yaw_adj
+            self._cursor_ema_pitch = pitch_adj
+        else:
+            if self._cursor_ema_pitch is None:
+                self._cursor_ema_pitch = pitch_adj
+            alpha = self.cursor_ema_alpha
+            ema_yaw = float(self._cursor_ema_yaw)
+            ema_pitch = float(self._cursor_ema_pitch)
+            self._cursor_ema_yaw = alpha * yaw_adj + (1.0 - alpha) * ema_yaw
+            self._cursor_ema_pitch = alpha * pitch_adj + (1.0 - alpha) * ema_pitch
+
+        if self._cursor_affine is not None:
+            point = np.array([self._cursor_ema_yaw, self._cursor_ema_pitch, 1.0], dtype=np.float64)
+            mapped = np.dot(self._cursor_affine, point)
+            norm_x = float(mapped[0])
+            norm_y = float(mapped[1])
+
+            if self._cursor_norm_bounds is not None:
+                min_x, max_x, min_y, max_y = self._cursor_norm_bounds
+                norm_x = (norm_x - min_x) / (max_x - min_x)
+                norm_y = (norm_y - min_y) / (max_y - min_y)
+        else:
+            norm_x = (self._cursor_ema_yaw + self.cursor_yaw_span) / (2.0 * self.cursor_yaw_span)
+            norm_y = (self._cursor_ema_pitch + self.cursor_pitch_span) / (2.0 * self.cursor_pitch_span)
+
+        norm_x = self._clip01(norm_x)
+        norm_y = self._clip01(norm_y)
+
+        minx, miny, maxx, maxy = self._cursor_bounds
+        width = maxx - minx + 1
+        height = maxy - miny + 1
+
+        target_x = minx + int(round(norm_x * (width - 1)))
+        target_y = miny + int(round(norm_y * (height - 1)))
+        return target_x, target_y
+
+    def _update_cursor(self, yaw_rad: float, pitch_rad: float) -> None:
+        if self.cursor is None:
+            return
+
+        target = self._cursor_target_from_gaze(yaw_rad=yaw_rad, pitch_rad=pitch_rad)
+        if target is None:
+            return
+
+        self.cursor.step_towards(*target)
+
     def start(self) -> None:
         self.cap = cv2.VideoCapture(self.camera_index)
         if self.cap is None or not self.cap.isOpened():
@@ -339,8 +747,15 @@ class RealtimeETHXGaze:
         cap = self.cap
 
         print("ETH-XGaze-style realtime demo started.")
-        print("Controls: q / ESC to quit")
+        print("Controls: q / ESC to quit, c to recalibrate cursor mapping")
         print("Showing normalized face patch with gaze arrow.")
+
+        if self.cursor_enabled and self.cursor is not None:
+            calibrated = self._run_cursor_calibration(cap)
+            if not calibrated:
+                print("Using fallback span-based cursor mapping.")
+
+        latest_pitch_yaw: Optional[Tuple[float, float]] = None
 
         try:
             while True:
@@ -348,53 +763,25 @@ class RealtimeETHXGaze:
                 if not ok:
                     continue
 
-                frame_h, frame_w = frame_bgr.shape[:2]
-                rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-                detected_faces = self.face_detector(rgb, 0)
-                if len(detected_faces) == 0:
-                    cv2.imshow("ETH-XGaze Realtime", frame_bgr)
-                    key = cv2.waitKey(1) & 0xFF
-                    if key in (27, ord("q")):
-                        break
-                    continue
-
-                shape = self.shape_predictor(frame_bgr, detected_faces[0])
-                landmarks = self._shape_to_np(shape)
-
-                landmarks_sub = landmarks[self._LANDMARK_SUBSET, :].astype(np.float64)
-                landmarks_sub = landmarks_sub.reshape(6, 1, 2)
-
-                camera_matrix = self._camera_matrix(frame_w, frame_h)
-
                 try:
-                    rvec, tvec = self._estimate_head_pose(
-                        landmarks_sub=landmarks_sub,
-                        face_model_pts=self.face_model_pts,
-                        camera_matrix=camera_matrix,
-                        camera_distortion=self.camera_distortion,
-                    )
-                    face_patch, landmarks_normalized = self._normalize_face_patch(
-                        frame_bgr=frame_bgr,
-                        landmarks_2d=landmarks_sub,
-                        rvec=rvec,
-                        tvec=tvec,
-                        camera_matrix=camera_matrix,
-                    )
+                    result = self._infer_gaze_from_frame(frame_bgr)
                 except Exception:
+                    result = None
+
+                if result is None:
                     cv2.imshow("ETH-XGaze Realtime", frame_bgr)
                     key = cv2.waitKey(1) & 0xFF
                     if key in (27, ord("q")):
                         break
                     continue
 
-                with torch.no_grad():
-                    input_tensor = self._preprocess(face_patch, self.device)
-                    pred = self.model(input_tensor).squeeze(0).detach().cpu().numpy()
+                pitch_rad, yaw_rad, face_patch, landmarks_normalized = result
 
-                pitch_rad = float(pred[0])
-                yaw_rad = float(pred[1])
+                latest_pitch_yaw = (pitch_rad, yaw_rad)
 
                 print(f"pitch: {pitch_rad:.6f}, yaw: {yaw_rad:.6f}", flush=True)
+
+                self._update_cursor(yaw_rad=yaw_rad, pitch_rad=pitch_rad)
 
                 vis_patch = self._draw_gaze_arrow(face_patch, pitch_rad, yaw_rad)
                 for x, y in landmarks_normalized.astype(int):
@@ -414,6 +801,13 @@ class RealtimeETHXGaze:
                 cv2.imshow("ETH-XGaze Realtime", vis_patch)
 
                 key = cv2.waitKey(1) & 0xFF
+                if key == ord("c") and latest_pitch_yaw is not None:
+                    recalibrated = self._run_cursor_calibration(cap)
+                    if not recalibrated:
+                        self._calibrate_cursor_center(
+                            yaw_rad=latest_pitch_yaw[1],
+                            pitch_rad=latest_pitch_yaw[0],
+                        )
                 if key in (27, ord("q")):
                     break
         finally:
@@ -474,6 +868,39 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional OpenCV XML calibration file containing Camera_Matrix and Distortion_Coefficients",
     )
+    parser.add_argument(
+        "--disable-cursor-control",
+        action="store_true",
+        help="Disable cursor control and run visualization-only mode.",
+    )
+    parser.add_argument(
+        "--cursor-yaw-span",
+        type=float,
+        default=0.6,
+        help="Half-range in radians mapped to full screen width.",
+    )
+    parser.add_argument(
+        "--cursor-pitch-span",
+        type=float,
+        default=0.4,
+        help="Half-range in radians mapped to full screen height.",
+    )
+    parser.add_argument(
+        "--cursor-ema-alpha",
+        type=float,
+        default=0.2,
+        help="Smoothing factor for cursor mapping in (0, 1].",
+    )
+    parser.add_argument(
+        "--cursor-invert-x",
+        action="store_true",
+        help="Invert horizontal gaze-to-cursor mapping.",
+    )
+    parser.add_argument(
+        "--cursor-invert-y",
+        action="store_true",
+        help="Invert vertical gaze-to-cursor mapping.",
+    )
     return parser.parse_args()
 
 
@@ -496,6 +923,12 @@ def main() -> int:
             predictor_path=args.predictor_path,
             face_model_path=args.face_model_path,
             camera_calib_path=args.camera_calib_path,
+            cursor_enabled=not args.disable_cursor_control,
+            cursor_yaw_span=args.cursor_yaw_span,
+            cursor_pitch_span=args.cursor_pitch_span,
+            cursor_ema_alpha=args.cursor_ema_alpha,
+            cursor_invert_x=args.cursor_invert_x,
+            cursor_invert_y=args.cursor_invert_y,
         )
     except Exception as exc:
         print(f"Failed to initialize ETH-XGaze realtime runner: {exc}")
