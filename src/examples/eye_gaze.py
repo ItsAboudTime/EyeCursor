@@ -74,8 +74,6 @@ class RealtimeETHXGaze:
         cursor_yaw_span: float = 0.6,
         cursor_pitch_span: float = 0.4,
         cursor_ema_alpha: float = 0.1,
-        cursor_invert_x: bool = False,
-        cursor_invert_y: bool = False,
     ) -> None:
         self.weights = pathlib.Path(weights).expanduser().resolve()
         if not self.weights.exists():
@@ -95,8 +93,6 @@ class RealtimeETHXGaze:
         self.cursor_yaw_span = float(cursor_yaw_span)
         self.cursor_pitch_span = float(cursor_pitch_span)
         self.cursor_ema_alpha = float(cursor_ema_alpha)
-        self.cursor_invert_x = bool(cursor_invert_x)
-        self.cursor_invert_y = bool(cursor_invert_y)
 
         if self.cursor_yaw_span <= 0.0:
             raise ValueError("cursor_yaw_span must be > 0")
@@ -483,15 +479,6 @@ class RealtimeETHXGaze:
         )
         return canvas
 
-    def _cursor_gaze_components(self, yaw_rad: float, pitch_rad: float) -> Tuple[float, float]:
-        yaw_adj = yaw_rad
-        pitch_adj = pitch_rad
-        if self.cursor_invert_x:
-            yaw_adj = -yaw_adj
-        if self.cursor_invert_y:
-            pitch_adj = -pitch_adj
-        return yaw_adj, pitch_adj
-
     def _capture_gaze_average(
         self,
         cap: cv2.VideoCapture,
@@ -511,7 +498,8 @@ class RealtimeETHXGaze:
                 continue
 
             pitch_rad, yaw_rad, _, _ = result
-            yaw_adj, pitch_adj = self._cursor_gaze_components(yaw_rad=yaw_rad, pitch_rad=pitch_rad)
+            yaw_adj = yaw_rad
+            pitch_adj = -pitch_rad
             samples.append((yaw_adj, pitch_adj))
 
             if len(samples) >= sample_count:
@@ -666,7 +654,7 @@ class RealtimeETHXGaze:
 
     def _calibrate_cursor_center(self, yaw_rad: float, pitch_rad: float) -> None:
         self._cursor_calibration_yaw = -yaw_rad
-        self._cursor_calibration_pitch = -pitch_rad
+        self._cursor_calibration_pitch = pitch_rad
         self._cursor_ema_yaw = None
         self._cursor_ema_pitch = None
         print(
@@ -678,7 +666,8 @@ class RealtimeETHXGaze:
         if not self.cursor_enabled or self.cursor is None or self._cursor_bounds is None:
             return None
 
-        yaw_adj, pitch_adj = self._cursor_gaze_components(yaw_rad=yaw_rad, pitch_rad=pitch_rad)
+        yaw_adj = yaw_rad
+        pitch_adj = -pitch_rad
         yaw_adj += self._cursor_calibration_yaw
         pitch_adj += self._cursor_calibration_pitch
 
@@ -891,16 +880,6 @@ def parse_args() -> argparse.Namespace:
         default=0.2,
         help="Smoothing factor for cursor mapping in (0, 1].",
     )
-    parser.add_argument(
-        "--cursor-invert-x",
-        action="store_true",
-        help="Invert horizontal gaze-to-cursor mapping.",
-    )
-    parser.add_argument(
-        "--cursor-invert-y",
-        action="store_true",
-        help="Invert vertical gaze-to-cursor mapping.",
-    )
     return parser.parse_args()
 
 
@@ -927,8 +906,6 @@ def main() -> int:
             cursor_yaw_span=args.cursor_yaw_span,
             cursor_pitch_span=args.cursor_pitch_span,
             cursor_ema_alpha=args.cursor_ema_alpha,
-            cursor_invert_x=args.cursor_invert_x,
-            cursor_invert_y=args.cursor_invert_y,
         )
     except Exception as exc:
         print(f"Failed to initialize ETH-XGaze realtime runner: {exc}")
