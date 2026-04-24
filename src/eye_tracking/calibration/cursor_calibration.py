@@ -102,7 +102,7 @@ def capture_gaze_average(
 
         pitch_rad, yaw_rad, _, _ = result
         yaw_adj = yaw_rad
-        pitch_adj = -pitch_rad
+        pitch_adj = pitch_rad
         samples.append((yaw_adj, pitch_adj))
 
         if len(samples) >= sample_count:

@@ -116,7 +116,7 @@ class HeadCompensatedETHXGaze:
         eye_yaw: float,
         head_pitch: float,
         head_yaw: float,
-    ) -> Tuple[float, float]:
+    ) -> Tuple[float, float, float, float]:
         # Re-center head pose around the latest neutral calibration.
         head_pitch, head_yaw = self._center_head_angles(head_pitch=head_pitch, head_yaw=head_yaw)
 
@@ -125,10 +125,10 @@ class HeadCompensatedETHXGaze:
         head_yaw = float(np.clip(head_yaw, -max_angle, max_angle))
         head_pitch = float(np.clip(head_pitch, -max_angle, max_angle))
 
-        # Use subtractive compensation because ETH-XGaze output already carries head-related motion.
+        # Yaw stays subtractive; pitch is intentionally opposite to match runtime behavior.
         compensated_yaw = eye_yaw - (self.head_compensation_yaw * head_yaw)
-        compensated_pitch = eye_pitch - (self.head_compensation_pitch * head_pitch)
-        return compensated_pitch, compensated_yaw
+        compensated_pitch = eye_pitch + (self.head_compensation_pitch * head_pitch)
+        return compensated_pitch, compensated_yaw, head_pitch, head_yaw
 
     def _center_head_angles(self, head_pitch: float, head_yaw: float) -> Tuple[float, float]:
         centered_pitch = float(head_pitch - self.head_zero_pitch)
@@ -209,15 +209,10 @@ class HeadCompensatedETHXGaze:
             input_tensor = self.inference._preprocess(face_patch, self.inference.device)
             pred = self.inference.model(input_tensor).squeeze(0).detach().cpu().numpy()
 
-        eye_pitch = float(pred[0])
+        eye_pitch = -float(pred[0])
         eye_yaw = float(pred[1])
         raw_head_yaw, raw_head_pitch = self._head_angles_from_rvec(rvec)
-        centered_head_pitch, centered_head_yaw = self._center_head_angles(
-            head_pitch=raw_head_pitch,
-            head_yaw=raw_head_yaw,
-        )
-
-        compensated_pitch, compensated_yaw = self._apply_compensation(
+        compensated_pitch, compensated_yaw, used_head_pitch, used_head_yaw = self._apply_compensation(
             eye_pitch=eye_pitch,
             eye_yaw=eye_yaw,
             head_pitch=raw_head_pitch,
@@ -231,8 +226,8 @@ class HeadCompensatedETHXGaze:
             landmarks_normalized,
             eye_pitch,
             eye_yaw,
-            centered_head_pitch,
-            centered_head_yaw,
+            used_head_pitch,
+            used_head_yaw,
             raw_head_pitch,
             raw_head_yaw,
         )
@@ -344,15 +339,11 @@ class HeadCompensatedETHXGaze:
                 comp_yaw_deg = float(np.rad2deg(comp_yaw))
 
                 print(
-                    "eye_deg(p={:.2f}, y={:.2f})  head0_deg(p={:.2f}, y={:.2f})  raw_head_deg(p={:.2f}, y={:.2f})  comp_deg(p={:.2f}, y={:.2f})".format(
+                    "eye_deg(p={:.2f}, y={:.2f})  head_used_deg(p={:.2f}, y={:.2f})".format(
                         eye_pitch_deg,
                         eye_yaw_deg,
                         head_pitch_deg,
                         head_yaw_deg,
-                        raw_head_pitch_deg,
-                        raw_head_yaw_deg,
-                        comp_pitch_deg,
-                        comp_yaw_deg,
                     ),
                     flush=True,
                 )

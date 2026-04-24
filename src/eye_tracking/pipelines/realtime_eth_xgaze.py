@@ -60,6 +60,22 @@ class RealtimeETHXGaze:
 
         self.cap: Optional[cv2.VideoCapture] = None
 
+    @staticmethod
+    def _to_app_pitch(model_pitch_rad: float) -> float:
+        # ETH-XGaze model pitch uses opposite sign from app-level head-pose mapping.
+        return -float(model_pitch_rad)
+
+    def _infer_for_calibration(
+        self,
+        frame_bgr,
+    ) -> Optional[Tuple[float, float, object, object]]:
+        result = self.inference.infer_from_frame(frame_bgr)
+        if result is None:
+            return None
+        model_pitch_rad, yaw_rad, face_patch, landmarks_normalized = result
+        app_pitch_rad = self._to_app_pitch(model_pitch_rad)
+        return app_pitch_rad, yaw_rad, face_patch, landmarks_normalized
+
     def start(self) -> None:
         self.cap = cv2.VideoCapture(self.camera_index)
         if self.cap is None or not self.cap.isOpened():
@@ -84,7 +100,7 @@ class RealtimeETHXGaze:
         if self.cursor_controller.cursor_enabled and self.cursor_controller.cursor is not None:
             calibrated = run_cursor_calibration(
                 cap=cap,
-                infer_gaze_from_frame=self.inference.infer_from_frame,
+                infer_gaze_from_frame=self._infer_for_calibration,
                 cursor_controller=self.cursor_controller,
             )
             if not calibrated:
@@ -110,7 +126,8 @@ class RealtimeETHXGaze:
                         break
                     continue
 
-                pitch_rad, yaw_rad, face_patch, landmarks_normalized = result
+                model_pitch_rad, yaw_rad, face_patch, landmarks_normalized = result
+                pitch_rad = self._to_app_pitch(model_pitch_rad)
 
                 latest_pitch_yaw = (pitch_rad, yaw_rad)
 
@@ -139,7 +156,7 @@ class RealtimeETHXGaze:
                 if key == ord("c") and latest_pitch_yaw is not None:
                     recalibrated = run_cursor_calibration(
                         cap=cap,
-                        infer_gaze_from_frame=self.inference.infer_from_frame,
+                        infer_gaze_from_frame=self._infer_for_calibration,
                         cursor_controller=self.cursor_controller,
                     )
                     if not recalibrated:

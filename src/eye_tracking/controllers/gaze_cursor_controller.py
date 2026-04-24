@@ -128,7 +128,7 @@ class GazeCursorController:
 
     def calibrate_center(self, yaw_rad: float, pitch_rad: float) -> None:
         self.calibration_yaw = -yaw_rad
-        self.calibration_pitch = pitch_rad
+        self.calibration_pitch = -pitch_rad
         self.ema_yaw = None
         self.ema_pitch = None
         print(
@@ -145,7 +145,7 @@ class GazeCursorController:
             return None
 
         yaw_adj = yaw_rad
-        pitch_adj = -pitch_rad
+        pitch_adj = pitch_rad
         yaw_adj += self.calibration_yaw
         pitch_adj += self.calibration_pitch
 

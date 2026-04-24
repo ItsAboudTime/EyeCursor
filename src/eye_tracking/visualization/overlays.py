@@ -9,7 +9,7 @@ def draw_gaze_arrow(image: np.ndarray, pitch_rad: float, yaw_rad: float) -> np.n
     center = np.array([w * 0.5, h * 0.5], dtype=np.float32)
 
     dx = -length * np.sin(yaw_rad) * np.cos(pitch_rad)
-    dy = -length * np.sin(pitch_rad)
+    dy = length * np.sin(pitch_rad)
 
     start = tuple(np.round(center).astype(np.int32))
     end = tuple(np.round(center + np.array([dx, dy], dtype=np.float32)).astype(np.int32))
