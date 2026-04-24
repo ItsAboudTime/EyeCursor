@@ -86,9 +86,13 @@ def run_tracking_loop(cursor, stop_queue, control_queue):
 
             if face_analysis is not None:
                 latest_head_angles = face_analysis.angles
+                if latest_head_angles is not None:
+                    yaw_deg, pitch_deg = latest_head_angles
+                    print(f"\rHead pose -> yaw: {yaw_deg:7.2f} deg | pitch: {pitch_deg:7.2f} deg", end="", flush=True)
                 gesture_controller.handle_face_analysis(face_analysis, now=time.time())
 
     finally:
+        print()
         gesture_controller.shutdown()
         camera.release()
         analysis_pipeline.release()
