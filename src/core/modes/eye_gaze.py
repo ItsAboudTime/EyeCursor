@@ -32,9 +32,14 @@ class EyeGazeMode(TrackingMode):
         gaze_calib = profile_calibrations.get("eye_gaze")
         if not gaze_calib:
             return False, "Gaze calibration required."
-        weights_path = gaze_calib.get("weights_path", "")
-        if weights_path and not pathlib.Path(weights_path).exists():
-            return False, f"Model weights not found at: {weights_path}"
+        for key, label in (
+            ("weights_path", "Model weights"),
+            ("predictor_path", "Face landmark predictor"),
+            ("face_model_path", "Face model file"),
+        ):
+            path_str = gaze_calib.get(key, "")
+            if path_str and not pathlib.Path(path_str).exists():
+                return False, f"{label} not found at: {path_str}. Please recalibrate."
         return True, ""
 
     def start(
@@ -52,7 +57,12 @@ class EyeGazeMode(TrackingMode):
 
         calib = profile_calibrations["eye_gaze"]
 
-        inference = ETHXGazeInference(weights=pathlib.Path(calib["weights_path"]))
+        inference_kwargs = {"weights": pathlib.Path(calib["weights_path"])}
+        if calib.get("predictor_path"):
+            inference_kwargs["predictor_path"] = pathlib.Path(calib["predictor_path"])
+        if calib.get("face_model_path"):
+            inference_kwargs["face_model_path"] = pathlib.Path(calib["face_model_path"])
+        inference = ETHXGazeInference(**inference_kwargs)
 
         controller = GazeCursorController(cursor_enabled=False)
         controller.cursor = cursor
