@@ -16,6 +16,7 @@ class EyeGestureCalibrationSession:
         self._left_wink_samples: List[Tuple[float, float]] = []
         self._right_wink_samples: List[Tuple[float, float]] = []
         self._squint_samples: List[Tuple[float, float]] = []
+        self._wide_open_samples: List[Tuple[float, float]] = []
 
     def capture_open_eyes(self, rgb_frame) -> Optional[Tuple[float, float]]:
         ratios = self._get_ratios(rgb_frame)
@@ -45,12 +46,20 @@ class EyeGestureCalibrationSession:
         self._squint_samples.append(ratios)
         return ratios
 
+    def capture_wide_open(self, rgb_frame) -> Optional[Tuple[float, float]]:
+        ratios = self._get_ratios(rgb_frame)
+        if ratios is None:
+            return None
+        self._wide_open_samples.append(ratios)
+        return ratios
+
     def get_sample_count(self, step: str) -> int:
         mapping = {
             "open": self._open_samples,
             "left_wink": self._left_wink_samples,
             "right_wink": self._right_wink_samples,
             "squint": self._squint_samples,
+            "wide_open": self._wide_open_samples,
         }
         return len(mapping.get(step, []))
 
@@ -63,6 +72,7 @@ class EyeGestureCalibrationSession:
             self._left_wink_samples,
             self._right_wink_samples,
             self._squint_samples,
+            self._wide_open_samples,
         ]):
             return None
 
@@ -74,8 +84,10 @@ class EyeGestureCalibrationSession:
 
         squint_left_avg = float(np.median([s[0] for s in self._squint_samples]))
         squint_right_avg = float(np.median([s[1] for s in self._squint_samples]))
+        wide_open_left_avg = float(np.median([s[0] for s in self._wide_open_samples]))
+        wide_open_right_avg = float(np.median([s[1] for s in self._wide_open_samples]))
 
-        both_eyes_open_threshold = (open_left_avg + open_right_avg) / 2.0 * 0.85
+        both_eyes_open_threshold = (wide_open_left_avg + wide_open_right_avg) / 2.0 * 0.9
         both_eyes_squint_threshold = (squint_left_avg + squint_right_avg) / 2.0 * 1.15
 
         if both_eyes_squint_threshold >= both_eyes_open_threshold:
@@ -95,6 +107,8 @@ class EyeGestureCalibrationSession:
         return {
             "left_eye_open_avg": round(open_left_avg, 4),
             "right_eye_open_avg": round(open_right_avg, 4),
+            "left_eye_wide_open_avg": round(wide_open_left_avg, 4),
+            "right_eye_wide_open_avg": round(wide_open_right_avg, 4),
             "both_eyes_open_threshold": round(both_eyes_open_threshold, 4),
             "both_eyes_squint_threshold": round(both_eyes_squint_threshold, 4),
             "wink_eye_closed_threshold": round(wink_eye_closed_threshold, 4),
@@ -114,6 +128,7 @@ class EyeGestureCalibrationSession:
         self._left_wink_samples.clear()
         self._right_wink_samples.clear()
         self._squint_samples.clear()
+        self._wide_open_samples.clear()
 
     def _get_ratios(self, rgb_frame) -> Optional[Tuple[float, float]]:
         observation = self._provider.get_primary_face_observation(rgb_frame)

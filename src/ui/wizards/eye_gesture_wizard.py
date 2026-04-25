@@ -25,6 +25,7 @@ STEPS = [
     ("left_wink", "Close your LEFT eye (left wink)."),
     ("right_wink", "Close your RIGHT eye (right wink)."),
     ("squint", "Squint both eyes."),
+    ("wide_open", "Open both eyes wide open."),
 ]
 
 
@@ -157,6 +158,7 @@ class EyeGestureCalibrationWizard(QDialog):
                 "left_wink": self._session.capture_left_wink,
                 "right_wink": self._session.capture_right_wink,
                 "squint": self._session.capture_squint,
+                "wide_open": self._session.capture_wide_open,
             }[step_name]
 
             ratios = capture_fn(rgb)
