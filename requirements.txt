@@ -6,6 +6,8 @@ numpy>=1.24
 opencv-python>=4.8
 certifi>=2024.0.0
 mediapipe>=0.10
+PySide6>=6.6
+platformdirs>=4.0
 
 # Fast-FoundationStereo runtime
 timm

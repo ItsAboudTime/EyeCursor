@@ -48,6 +48,8 @@ class GestureController:
         self.hold_mode = False
         self.missed_same_side_frames = 0
 
+        self.click_enabled = True
+        self.scroll_enabled = True
         self.active_scroll_gesture: Optional[str] = None
         self.scroll_gesture_started_at = 0.0
         self.last_scroll_at = 0.0
@@ -68,6 +70,8 @@ class GestureController:
         return None
 
     def _handle_scroll_gesture(self, face_analysis, now: float) -> None:
+        if not self.scroll_enabled:
+            return
         gesture = self._resolve_scroll_gesture(
             left_eye_ratio=face_analysis.left_eye_ratio,
             right_eye_ratio=face_analysis.right_eye_ratio,
@@ -204,11 +208,12 @@ class GestureController:
             target_y = max(self.miny, min(self.maxy, raw_ty + self.miny))
             self.cursor.step_towards(target_x, target_y)
 
-        actions = self.update(
-            wink_side=face_analysis.wink_direction,
-            now=now,
-        )
-        self._apply_mouse_actions(actions)
+        if self.click_enabled:
+            actions = self.update(
+                wink_side=face_analysis.wink_direction,
+                now=now,
+            )
+            self._apply_mouse_actions(actions)
         self._handle_scroll_gesture(face_analysis=face_analysis, now=now)
 
     def shutdown(self) -> None:
