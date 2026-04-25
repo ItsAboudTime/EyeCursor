@@ -48,10 +48,6 @@ class HeadCompensatedETHXGaze:
         head_compensation_yaw_step: float = 0.02,
         head_compensation_pitch_step: float = 0.02,
     ) -> None:
-        if head_compensation_yaw < 0.0:
-            raise ValueError("head_compensation_yaw must be >= 0")
-        if head_compensation_pitch < 0.0:
-            raise ValueError("head_compensation_pitch must be >= 0")
         if head_compensation_yaw_step <= 0.0:
             raise ValueError("head_compensation_yaw_step must be > 0")
         if head_compensation_pitch_step <= 0.0:
@@ -136,14 +132,14 @@ class HeadCompensatedETHXGaze:
         return centered_pitch, centered_yaw
 
     def _set_head_compensation_yaw(self, new_value: float) -> None:
-        self.head_compensation_yaw = max(0.0, float(new_value))
+        self.head_compensation_yaw = float(new_value)
         print(
             f"Updated yaw compensation gain: {self.head_compensation_yaw:.3f}",
             flush=True,
         )
 
     def _set_head_compensation_pitch(self, new_value: float) -> None:
-        self.head_compensation_pitch = max(0.0, float(new_value))
+        self.head_compensation_pitch = float(new_value)
         print(
             f"Updated pitch compensation gain: {self.head_compensation_pitch:.3f}",
             flush=True,
@@ -552,13 +548,13 @@ def parse_args() -> argparse.Namespace:
         "--head-compensation-yaw",
         type=float,
         default=0.3,
-        help="Head yaw compensation gain applied subtractively (>= 0).",
+        help="Head yaw compensation gain applied subtractively (signed).",
     )
     parser.add_argument(
         "--head-compensation-pitch",
         type=float,
         default=0.0,
-        help="Head pitch compensation gain applied subtractively (>= 0).",
+        help="Head pitch compensation gain applied additively (signed).",
     )
     parser.add_argument(
         "--head-compensation-max-angle-deg",
