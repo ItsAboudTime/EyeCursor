@@ -34,6 +34,11 @@ class GazeCalibrationWizard(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Gaze Calibration")
         self.setMinimumSize(800, 600)
+        self.setStyleSheet(
+            "QDialog { background: #2d3436; }"
+            "QLabel { color: white; }"
+            "QProgressBar { color: white; }"
+        )
 
         self._camera_index = camera_index
         self._camera_manager = camera_manager

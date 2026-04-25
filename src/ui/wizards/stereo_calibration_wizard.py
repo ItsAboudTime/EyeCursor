@@ -48,6 +48,15 @@ class StereoCalibrationWizard(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Stereo Calibration")
         self.setMinimumSize(900, 650)
+        self.setStyleSheet(
+            "QDialog { background: #2d3436; }"
+            "QLabel { color: white; }"
+            "QProgressBar { color: white; }"
+            "QGroupBox { color: white; }"
+            "QGroupBox::title { color: white; }"
+            "QSpinBox { color: #2d3436; background: white; }"
+            "QDoubleSpinBox { color: #2d3436; background: white; }"
+        )
 
         self._left_index = left_camera_index
         self._right_index = right_camera_index

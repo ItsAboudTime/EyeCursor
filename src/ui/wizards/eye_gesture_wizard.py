@@ -38,6 +38,11 @@ class EyeGestureCalibrationWizard(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Eye Gesture Calibration")
         self.setMinimumSize(700, 550)
+        self.setStyleSheet(
+            "QDialog { background: #2d3436; }"
+            "QLabel { color: white; }"
+            "QProgressBar { color: white; }"
+        )
 
         self._camera_index = camera_index
         self._camera_manager = camera_manager
@@ -74,7 +79,7 @@ class EyeGestureCalibrationWizard(QDialog):
 
         self._ratio_label = QLabel("Eye ratios: --")
         self._ratio_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._ratio_label.setStyleSheet("font-size: 14px; color: #636e72;")
+        self._ratio_label.setStyleSheet("font-size: 14px; color: #b2bec3;")
         layout.addWidget(self._ratio_label)
 
         self._progress_label = QLabel(f"Step 1 / {len(STEPS)}")
