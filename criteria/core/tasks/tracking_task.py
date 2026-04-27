@@ -5,6 +5,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen
 
 from criteria.core.metrics import avg, distance, med, stddev
 from criteria.core.scoring import tracking_score
+from criteria.core.sounds import play as sfx
 from criteria.core.tasks.base_task import Target, TestTask
 
 
@@ -14,6 +15,7 @@ class TrackingTask(TestTask):
     description = "Follow the moving target as closely as possible."
 
     radius = 30
+    ready_delay_ms = 500
 
     def start(self, bounds: QRect) -> None:
         super().start(bounds)
@@ -21,17 +23,45 @@ class TrackingTask(TestTask):
         self.last_sample_ms = -self.sample_interval_ms
         self.waypoints = [self.target_from_rng(self.radius) for _ in range(9)]
         self.segment_duration_ms = max(700, self.config.tracking_duration_ms // (len(self.waypoints) - 1))
-        self.target = self._target_at(0)
+        self.target = self.waypoints[0]
+        self._waiting = True
+        self._entered_ms: int | None = None
+        self._tracking_start_ms: int | None = None
+        self._dinged_enter = False
+        self._warning_played = False
 
     def update(self, elapsed_ms: int, cursor: QPointF) -> None:
         super().update(elapsed_ms, cursor)
         if self.completed or self.paused:
             return
-        self.target = self._target_at(elapsed_ms)
-        if elapsed_ms - self.last_sample_ms >= self.sample_interval_ms:
-            self._record_sample(elapsed_ms, cursor)
-            self.last_sample_ms = elapsed_ms
-        if elapsed_ms >= self.config.tracking_duration_ms:
+
+        if self._waiting:
+            inside = self.point_inside(self.target, cursor)
+            if inside:
+                if self._entered_ms is None:
+                    self._entered_ms = elapsed_ms
+                    if not self._dinged_enter:
+                        sfx("ding")
+                        self._dinged_enter = True
+                elif elapsed_ms - self._entered_ms >= self.ready_delay_ms:
+                    sfx("success")
+                    self._waiting = False
+                    self._tracking_start_ms = elapsed_ms
+            else:
+                self._entered_ms = None
+                self._dinged_enter = False
+            return
+
+        tracking_elapsed = elapsed_ms - self._tracking_start_ms
+        self.target = self._target_at(tracking_elapsed)
+        if tracking_elapsed - self.last_sample_ms >= self.sample_interval_ms:
+            self._record_sample(tracking_elapsed, cursor)
+            self.last_sample_ms = tracking_elapsed
+        remaining = self.config.tracking_duration_ms - tracking_elapsed
+        if not self._warning_played and remaining <= 3000:
+            sfx("warning")
+            self._warning_played = True
+        if tracking_elapsed >= self.config.tracking_duration_ms:
             self._summarize()
             self.completed = True
 
@@ -40,9 +70,18 @@ class TrackingTask(TestTask):
         self.draw_target(painter, self.target, "#6c5ce7")
         painter.setPen(QPen(QColor("#2d3436")))
         painter.setFont(QFont("Arial", 16))
-        painter.drawText(28, 42, "Tracking")
-        remaining = max(0, self.config.tracking_duration_ms - self.elapsed_ms)
-        painter.drawText(28, 72, f"{remaining / 1000:.1f}s")
+
+        if self._waiting:
+            painter.drawText(28, 42, "Tracking — move cursor into the circle to begin")
+            if self._entered_ms is not None:
+                hold = self.elapsed_ms - self._entered_ms
+                remaining_hold = max(0, self.ready_delay_ms - hold)
+                painter.drawText(28, 72, f"Starting in {remaining_hold / 1000:.1f}s")
+        else:
+            painter.drawText(28, 42, "Tracking")
+            tracking_elapsed = self.elapsed_ms - self._tracking_start_ms
+            remaining = max(0, self.config.tracking_duration_ms - tracking_elapsed)
+            painter.drawText(28, 72, f"{remaining / 1000:.1f}s")
 
     def _target_at(self, elapsed_ms: int) -> Target:
         max_index = len(self.waypoints) - 1

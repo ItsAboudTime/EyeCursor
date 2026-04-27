@@ -5,6 +5,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen
 
 from criteria.core.metrics import avg, distance, med
 from criteria.core.scoring import accuracy_score
+from criteria.core.sounds import play as sfx
 from criteria.core.tasks.base_task import TestTask
 
 
@@ -22,12 +23,24 @@ class AccuracyTask(TestTask):
         self.current_started_ms = 0
         self.target = self.target_from_rng(self.radius)
         self.last_cursor = QPointF(self.screen_width / 2, self.screen_height / 2)
+        self._was_inside = False
+        self._warning_played = False
 
     def update(self, elapsed_ms: int, cursor: QPointF) -> None:
         super().update(elapsed_ms, cursor)
         self.last_cursor = cursor
         if self.completed or self.paused:
             return
+        inside = self.point_inside(self.target, cursor)
+        if inside and not self._was_inside:
+            sfx("ding")
+            self._was_inside = True
+        elif not inside:
+            self._was_inside = False
+        trial_remaining = self.timeout_ms - (elapsed_ms - self.current_started_ms)
+        if not self._warning_played and trial_remaining <= 300:
+            sfx("tick")
+            self._warning_played = True
         if elapsed_ms - self.current_started_ms >= self.timeout_ms:
             self._finish_trial(elapsed_ms)
 
@@ -59,6 +72,8 @@ class AccuracyTask(TestTask):
         )
         self.trial_index += 1
         self.current_started_ms = elapsed_ms
+        self._was_inside = False
+        self._warning_played = False
         if self.trial_index >= self.config.accuracy_trials:
             self._summarize()
             self.completed = True

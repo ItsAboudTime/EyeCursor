@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from criteria.core.models import Session
 from criteria.core.storage import StorageManager
 from criteria.ui.pages.dashboard_page import DashboardPage
+from criteria.ui.pages.metrics_guide_page import MetricsGuidePage
 from criteria.ui.pages.results_page import ResultsPage
 from criteria.ui.pages.resume_page import ResumePage
 from criteria.ui.pages.session_setup_page import SessionSetupPage
@@ -47,7 +48,7 @@ class MainWindow(QMainWindow):
         self.sidebar = QListWidget()
         self.sidebar.setObjectName("Sidebar")
         self.sidebar.setFixedWidth(210)
-        for name in ["Dashboard", "New Session", "Resume Session", "Results", "Settings"]:
+        for name in ["Dashboard", "New Session", "Resume Session", "Results", "Metrics Guide", "Settings"]:
             self.sidebar.addItem(QListWidgetItem(name))
         layout.addWidget(self.sidebar)
         self.stack = QStackedWidget()
@@ -55,8 +56,9 @@ class MainWindow(QMainWindow):
         self.setup_page = SessionSetupPage()
         self.resume_page = ResumePage()
         self.results_page = ResultsPage()
+        self.metrics_guide_page = MetricsGuidePage()
         self.settings_page = SettingsPage()
-        for page in (self.dashboard, self.setup_page, self.resume_page, self.results_page, self.settings_page):
+        for page in (self.dashboard, self.setup_page, self.resume_page, self.results_page, self.metrics_guide_page, self.settings_page):
             self.stack.addWidget(page)
         layout.addWidget(self.stack)
         self.sidebar.setCurrentRow(0)
@@ -70,6 +72,7 @@ class MainWindow(QMainWindow):
         self.resume_page.resume_selected.connect(self.resume_session)
         self.results_page.export_json_requested.connect(self.export_json)
         self.results_page.export_csv_requested.connect(self.export_csv)
+        self.results_page.export_all_csv_requested.connect(self.export_all_csv)
 
     def refresh(self) -> None:
         sessions = self.storage.list_sessions()
@@ -111,6 +114,14 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Export failed", "Could not export the CSV summary.")
             return
         QMessageBox.information(self, "Export complete", f"CSV exported to:\n{path}")
+
+    def export_all_csv(self) -> None:
+        try:
+            path = self.storage.export_all_sessions_csv()
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "Export failed", str(exc))
+            return
+        QMessageBox.information(self, "Export complete", f"All sessions exported to:\n{path}")
 
     def _open_test_window(self, session: Session) -> None:
         self.test_window = TestWindow(session, self.storage)
