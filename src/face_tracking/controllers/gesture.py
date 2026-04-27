@@ -9,6 +9,7 @@ class GestureController:
         cursor,
         hold_trigger_seconds: float = 1.0,
         release_missed_frames: int = 5,
+        wink_trigger_seconds: float = 0.1,
         both_eyes_open_threshold: float = 0.7,
         both_eyes_squint_threshold: float = 0.3,
         scroll_trigger_seconds: float = 1.0,
@@ -18,6 +19,8 @@ class GestureController:
             raise ValueError("hold_trigger_seconds must be > 0")
         if release_missed_frames < 1:
             raise ValueError("release_missed_frames must be >= 1")
+        if wink_trigger_seconds <= 0.0:
+            raise ValueError("wink_trigger_seconds must be > 0")
         if both_eyes_squint_threshold < 0.0:
             raise ValueError("both_eyes_squint_threshold must be >= 0")
         if both_eyes_open_threshold <= both_eyes_squint_threshold:
@@ -36,6 +39,7 @@ class GestureController:
 
         self.hold_trigger_seconds = float(hold_trigger_seconds)
         self.release_missed_frames = int(release_missed_frames)
+        self.wink_trigger_seconds = float(wink_trigger_seconds)
         self.both_eyes_open_threshold = float(both_eyes_open_threshold)
         self.both_eyes_squint_threshold = float(both_eyes_squint_threshold)
         self.scroll_trigger_seconds = float(scroll_trigger_seconds)
@@ -47,6 +51,9 @@ class GestureController:
         self.blink_started_at = 0.0
         self.hold_mode = False
         self.missed_same_side_frames = 0
+        self.pending_wink_side: Optional[str] = None
+        self.pending_wink_started_at = 0.0
+        self.confirmed_wink_side: Optional[str] = None
 
         self.click_enabled = True
         self.scroll_enabled = True
@@ -141,6 +148,28 @@ class GestureController:
             self.right_is_down = True
         return actions
 
+    def _intentional_wink(self, wink_side: Optional[str], now: float) -> Optional[str]:
+        if wink_side is None:
+            self.pending_wink_side = None
+            self.pending_wink_started_at = 0.0
+            self.confirmed_wink_side = None
+            return None
+
+        if self.confirmed_wink_side == wink_side:
+            return wink_side
+
+        if self.pending_wink_side != wink_side:
+            self.pending_wink_side = wink_side
+            self.pending_wink_started_at = now
+            self.confirmed_wink_side = None
+            return None
+
+        if (now - self.pending_wink_started_at) >= self.wink_trigger_seconds:
+            self.confirmed_wink_side = wink_side
+            return wink_side
+
+        return None
+
     def update(self, wink_side: Optional[str], now: float) -> list[str]:
         actions: list[str] = []
         desired_button = self._wink_to_button(wink_side)
@@ -196,6 +225,9 @@ class GestureController:
         self.blink_started_at = 0.0
         self.hold_mode = False
         self.missed_same_side_frames = 0
+        self.pending_wink_side = None
+        self.pending_wink_started_at = 0.0
+        self.confirmed_wink_side = None
         self.active_scroll_gesture = None
         self.scroll_gesture_started_at = 0.0
         self.last_scroll_at = 0.0
@@ -209,8 +241,9 @@ class GestureController:
             self.cursor.step_towards(target_x, target_y)
 
         if self.click_enabled:
+            wink_side = self._intentional_wink(face_analysis.wink_direction, now)
             actions = self.update(
-                wink_side=face_analysis.wink_direction,
+                wink_side=wink_side,
                 now=now,
             )
             self._apply_mouse_actions(actions)
