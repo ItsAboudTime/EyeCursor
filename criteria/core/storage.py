@@ -8,6 +8,7 @@ from typing import Any
 
 from platformdirs import user_data_dir
 
+from criteria.core.advanced_metrics import compute_advanced_metrics
 from criteria.core.models import Session
 from criteria.core.scoring import final_summary
 
@@ -32,8 +33,9 @@ class StorageManager:
         path.mkdir(parents=True, exist_ok=True)
         summary = final_summary(session)
         session.final_summary = summary
+        advanced = compute_advanced_metrics(session)
         self._write_json(path / "session.json", session.to_dict())
-        self._write_json(path / "summary.json", summary)
+        self._write_json(path / "summary.json", {**summary, "advanced_metrics": advanced})
         self._write_json(path / "raw_events.json", self._raw_payload(session))
         self._write_task_csvs(session)
 
@@ -78,10 +80,44 @@ class StorageManager:
         for task_id, result in session.task_results.items():
             row[f"{task_id}_status"] = result.status
             row[f"{task_id}_score"] = result.score
+        advanced = compute_advanced_metrics(session)
+        for task_id, task_adv in advanced.items():
+            for key, value in task_adv.items():
+                row[f"{task_id}_adv_{key}"] = value
         with output.open("w", newline="", encoding="utf-8") as file:
             writer = csv.DictWriter(file, fieldnames=list(row.keys()))
             writer.writeheader()
             writer.writerow(row)
+        return output
+
+    def export_all_sessions_csv(self) -> Path:
+        sessions = self.list_sessions()
+        if not sessions:
+            raise ValueError("No sessions to export")
+        output = self.exports_dir / "all_sessions_summary.csv"
+        rows: list[dict[str, Any]] = []
+        for session in sessions:
+            summary = final_summary(session)
+            advanced = compute_advanced_metrics(session)
+            row: dict[str, Any] = {
+                "session_id": session.session_id,
+                "participant_name": session.participant_name,
+                "input_method": session.input_method,
+                "seed": session.seed,
+                "screen_width": session.screen_width,
+                "screen_height": session.screen_height,
+                "started_at": session.started_at,
+                "completed_at": session.completed_at or "",
+                **summary,
+            }
+            for task_id, result in session.task_results.items():
+                row[f"{task_id}_status"] = result.status
+                row[f"{task_id}_score"] = result.score
+            for task_id, task_adv in advanced.items():
+                for key, value in task_adv.items():
+                    row[f"{task_id}_adv_{key}"] = value
+            rows.append(row)
+        self._write_csv(output, rows)
         return output
 
     def _write_task_csvs(self, session: Session) -> None:

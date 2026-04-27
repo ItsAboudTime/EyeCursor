@@ -4,6 +4,7 @@ from PySide6.QtCore import QPointF, QRect, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 
 from criteria.core.scoring import clicking_score
+from criteria.core.sounds import play as sfx
 from criteria.core.tasks.base_task import TestTask
 
 
@@ -21,11 +22,16 @@ class ClickingTask(TestTask):
         self.current_started_ms = 0
         self.target = self.target_from_rng(self.radius)
         self.requested_click = self._next_click_type()
+        self._warning_played = False
 
     def update(self, elapsed_ms: int, cursor: QPointF) -> None:
         super().update(elapsed_ms, cursor)
         if self.completed or self.paused:
             return
+        trial_remaining = self.timeout_ms - (elapsed_ms - self.current_started_ms)
+        if not self._warning_played and trial_remaining <= 2000:
+            sfx("warning")
+            self._warning_played = True
         if elapsed_ms - self.current_started_ms >= self.timeout_ms:
             self._record_trial(elapsed_ms, QPointF(-1, -1), None, "timeout", False)
 
@@ -36,10 +42,13 @@ class ClickingTask(TestTask):
         inside = self.point_inside(self.target, pos)
         if inside and button == self.requested_click:
             result = "success"
+            sfx("success")
         elif inside:
             result = "fail_inside"
+            sfx("error")
         else:
             result = "fail_outside"
+            sfx("error")
         self._record_trial(elapsed_ms, pos, button, result, inside)
 
     def paint(self, painter: QPainter, rect: QRect) -> None:
@@ -82,6 +91,7 @@ class ClickingTask(TestTask):
         )
         self.trial_index += 1
         self.current_started_ms = elapsed_ms
+        self._warning_played = False
         if self.trial_index >= self.config.clicking_trials:
             self._summarize()
             self.completed = True

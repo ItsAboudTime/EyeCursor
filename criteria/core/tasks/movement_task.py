@@ -5,6 +5,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen
 
 from criteria.core.metrics import avg, distance, med
 from criteria.core.scoring import movement_score
+from criteria.core.sounds import play as sfx
 from criteria.core.tasks.base_task import Target, TestTask
 
 
@@ -23,19 +24,32 @@ class MovementTask(TestTask):
         self.current_started_ms = 0
         self.dwell_started_ms: int | None = None
         self.previous_center: tuple[float, float] | None = None
+        self._was_inside = False
+        self._warning_played = False
         self.target = self._next_target()
 
     def update(self, elapsed_ms: int, cursor: QPointF) -> None:
         super().update(elapsed_ms, cursor)
+        self._last_cursor = cursor
         if self.completed or self.paused:
             return
-        if self.point_inside(self.target, cursor):
+        inside = self.point_inside(self.target, cursor)
+        if inside:
+            if not self._was_inside:
+                sfx("ding")
+                self._was_inside = True
             if self.dwell_started_ms is None:
                 self.dwell_started_ms = elapsed_ms
             if elapsed_ms - self.dwell_started_ms >= self.dwell_required_ms:
+                sfx("success")
                 self._finish_trial(elapsed_ms, completed=True, timed_out=False)
         else:
+            self._was_inside = False
             self.dwell_started_ms = None
+        trial_remaining = self.timeout_ms - (elapsed_ms - self.current_started_ms)
+        if not self._warning_played and trial_remaining <= 1000:
+            sfx("warning")
+            self._warning_played = True
         if elapsed_ms - self.current_started_ms >= self.timeout_ms:
             self._finish_trial(elapsed_ms, completed=False, timed_out=True)
 
@@ -56,6 +70,7 @@ class MovementTask(TestTask):
         movement_time = elapsed_ms - self.current_started_ms
         start_x, start_y = self.previous_center or (self.screen_width / 2, self.screen_height / 2)
         target_distance = distance(start_x, start_y, self.target.x, self.target.y)
+        cursor = self._last_cursor
         self.raw.append(
             {
                 "task": self.id,
@@ -63,6 +78,8 @@ class MovementTask(TestTask):
                 "target_x": round(self.target.x, 2),
                 "target_y": round(self.target.y, 2),
                 "target_radius": self.target.radius,
+                "cursor_x": round(cursor.x(), 2),
+                "cursor_y": round(cursor.y(), 2),
                 "start_time_ms": self.current_started_ms,
                 "end_time_ms": elapsed_ms,
                 "movement_time_ms": movement_time if completed else None,
@@ -75,6 +92,8 @@ class MovementTask(TestTask):
         self.previous_center = (self.target.x, self.target.y)
         self.trial_index += 1
         self.dwell_started_ms = None
+        self._was_inside = False
+        self._warning_played = False
         self.current_started_ms = elapsed_ms
         if self.trial_index >= self.config.movement_trials:
             self._summarize()
