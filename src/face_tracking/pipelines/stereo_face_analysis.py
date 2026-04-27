@@ -334,6 +334,9 @@ class StereoFaceAnalysisPipeline:
         self._wink_closed_threshold = float(wink_closed_threshold)
         self._wink_open_threshold = float(wink_open_threshold)
         self._debug_landmark_indices = [1, 10, 152, 234, 454]
+        self._last_screen_position: Optional[Tuple[int, int]] = None
+        self._last_angles: Optional[Tuple[float, float]] = None
+        self._last_depth: Optional[float] = None
 
     def analyze(
         self,
@@ -420,6 +423,19 @@ class StereoFaceAnalysisPipeline:
             closed_threshold=self._wink_closed_threshold,
             open_threshold=self._wink_open_threshold,
         )
+
+        if (
+            wink_direction is not None
+            and self._last_screen_position is not None
+            and self._last_angles is not None
+        ):
+            screen_position = self._last_screen_position
+            angles = self._last_angles
+            depth = self._last_depth
+        else:
+            self._last_screen_position = screen_position
+            self._last_angles = angles
+            self._last_depth = depth
 
         return FaceAnalysisResult(
             landmarks=left_observation.landmarks,
