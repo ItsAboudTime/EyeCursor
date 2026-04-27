@@ -35,8 +35,6 @@ class TwoCameraHeadPoseMode(TrackingMode):
     ) -> Tuple[bool, str]:
         if len(selected_cameras) < 2:
             return False, "Two cameras are required."
-        if selected_cameras[0] == selected_cameras[1]:
-            return False, "Left and right cameras cannot be the same."
 
         stereo = profile_calibrations.get("stereo")
         if not stereo:
