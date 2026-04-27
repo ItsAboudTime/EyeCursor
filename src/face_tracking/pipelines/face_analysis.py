@@ -34,6 +34,8 @@ class FaceAnalysisPipeline:
             pitch_span=pitch_span,
             ema_alpha=ema_alpha,
         )
+        self._last_screen_position: Optional[Tuple[int, int]] = None
+        self._last_angles: Optional[Tuple[float, float]] = None
 
     def analyze(
         self,
@@ -67,6 +69,14 @@ class FaceAnalysisPipeline:
 
         left_eye_ratio, right_eye_ratio = get_eye_aspect_ratios(landmarks)
         wink_direction = detect_wink_direction(landmarks)
+
+        if wink_direction is not None and self._last_screen_position is not None and self._last_angles is not None:
+            screen_position = self._last_screen_position
+            angles = self._last_angles
+        else:
+            self._last_screen_position = screen_position
+            self._last_angles = angles
+
         return FaceAnalysisResult(
             landmarks=landmarks,
             facial_transformation_matrix=facial_transformation_matrix,
