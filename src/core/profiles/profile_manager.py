@@ -114,6 +114,7 @@ class ProfileManager:
         status = {}
         for mode_id in modes:
             status[mode_id] = (cal_dir / f"{mode_id}.json").exists()
+        status["eye_gaze_bubble"] = status["eye_gaze"]
         status["stereo"] = stereo_path.exists()
         return status
 

@@ -64,6 +64,7 @@ class StereoCalibrationWizard(QDialog):
         self._session: Optional[StereoCalibrationSession] = None
         self._result: Optional[dict] = None
         self._compute_thread: Optional[QThread] = None
+        self._compute_worker: Optional[CalibrationComputer] = None
 
         self._setup_ui()
 
@@ -264,12 +265,12 @@ class StereoCalibrationWizard(QDialog):
         self._instruction_label.setText("Computing stereo calibration... (this may take a moment)")
 
         self._compute_thread = QThread()
-        worker = CalibrationComputer(self._session)
-        worker.moveToThread(self._compute_thread)
-        self._compute_thread.started.connect(worker.run)
-        worker.finished.connect(self._on_calibration_done)
-        worker.finished.connect(worker.deleteLater)
-        worker.finished.connect(self._compute_thread.quit)
+        self._compute_worker = CalibrationComputer(self._session)
+        self._compute_worker.moveToThread(self._compute_thread)
+        self._compute_thread.started.connect(self._compute_worker.run)
+        self._compute_worker.finished.connect(self._on_calibration_done)
+        self._compute_worker.finished.connect(self._compute_worker.deleteLater)
+        self._compute_worker.finished.connect(self._compute_thread.quit)
         self._compute_thread.start()
 
     @Slot(object)

@@ -43,6 +43,8 @@ class MainWindow(QMainWindow):
         self._tracking_mode: Optional[TrackingMode] = None
         self._is_tracking = False
         self._is_paused = False
+        self._gaze_overlay = None
+        self._gaze_signal_proxy = None
 
         self.setWindowTitle("EyeCursor")
         self.setMinimumSize(960, 640)
@@ -363,6 +365,21 @@ class MainWindow(QMainWindow):
             return
 
         self._tracking_mode = self._pending_mode
+
+        if getattr(self._tracking_mode, "id", None) == "eye_gaze_bubble":
+            from src.ui.overlays.gaze_bubble_overlay import GazeBubbleOverlay
+            from src.ui.overlays.gaze_signal_proxy import GazeSignalProxy
+
+            self._gaze_signal_proxy = GazeSignalProxy()
+            self._gaze_overlay = GazeBubbleOverlay(cursor.get_virtual_bounds())
+            self._gaze_signal_proxy.gaze_target_changed.connect(
+                self._gaze_overlay.update_position
+            )
+            self._tracking_mode.gaze_target_callback = (
+                self._gaze_signal_proxy.gaze_target_changed.emit
+            )
+            self._gaze_overlay.show()
+
         worker = TrackingWorker(
             mode=self._tracking_mode,
             calibrations=self._pending_calibrations,
@@ -418,7 +435,17 @@ class MainWindow(QMainWindow):
             self._tracking_thread.quit()
             self._tracking_thread.wait(5000)
             self._tracking_thread = None
+        self._teardown_gaze_overlay()
         self._dashboard_page.set_tracking_state("stopped")
+
+    def _teardown_gaze_overlay(self) -> None:
+        if self._gaze_overlay is not None:
+            self._gaze_overlay.hide()
+            self._gaze_overlay.deleteLater()
+            self._gaze_overlay = None
+        if self._gaze_signal_proxy is not None:
+            self._gaze_signal_proxy.deleteLater()
+            self._gaze_signal_proxy = None
 
     def keyPressEvent(self, event) -> None:
         if event.key() in (Qt.Key.Key_Q, Qt.Key.Key_Escape):
@@ -433,6 +460,7 @@ class MainWindow(QMainWindow):
         if self._tracking_thread:
             self._tracking_thread.quit()
             self._tracking_thread.wait(5000)
+        self._teardown_gaze_overlay()
         self._cameras_page.stop_previews()
         self._camera_manager.release_all()
         event.accept()

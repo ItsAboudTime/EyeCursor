@@ -28,8 +28,8 @@ from src.face_tracking.providers.face_landmarks import FaceLandmarksProvider
 from src.ui.settings import SettingsWindow
 
 
-LEFT_CAMERA_INDEX = 0
-RIGHT_CAMERA_INDEX = 0
+LEFT_CAMERA_INDEX = 4
+RIGHT_CAMERA_INDEX = 6
 BASELINE_METERS = 0.0788
 
 K1 = np.array([
