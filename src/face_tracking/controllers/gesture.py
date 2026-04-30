@@ -51,8 +51,9 @@ class GestureController:
     the button stays held -- this enables drag/draw. Releasing the lip
     gesture (intensity drops below the calibrated release threshold)
     releases the button. A brief pucker/tuck produces a press+release,
-    which apps treat as a single click. The cursor is also frozen during
-    the ramp-up to a click trigger so the press is precise.
+    which apps treat as a single click. The cursor is NOT frozen during
+    the ramp-up to a click trigger -- it keeps tracking the head pose
+    smoothly until the press fires.
 
     Smirk scroll: the signed smirk differential drives continuous scroll
     with speed proportional to ``|diff|`` between ``smirk_relax_diff`` and
@@ -328,16 +329,14 @@ class GestureController:
         # --- Click signals (lips) ---
         puff = self._adjusted_puff(blendshapes)
         tuck = self._adjusted_tuck(blendshapes)
-        # Cursor freeze: applies during the ramp-up to a click trigger and
-        # for the first click_hold_unfreeze_sec after the button presses.
-        # After that we unfreeze so the user can drag/draw with the button held.
-        gesture_starting = (puff >= self.cheek_puff_release or tuck >= self.tuck_release) \
-            and self._held_button is None
-        held_recently = (
+        # Cursor freeze: only for the first click_hold_unfreeze_sec after the
+        # button presses, so the press lands on a stable target before drag.
+        # No ramp-up freeze -- the cursor keeps tracking smoothly while the
+        # user is forming a gesture.
+        cursor_frozen = (
             self._held_button is not None
             and (now - self._held_started_at) < self.click_hold_unfreeze_sec
         )
-        cursor_frozen = gesture_starting or held_recently
 
         if face_analysis.screen_position is not None and not cursor_frozen:
             raw_tx, raw_ty = face_analysis.screen_position
