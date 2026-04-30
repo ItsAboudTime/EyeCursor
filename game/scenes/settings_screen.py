@@ -25,6 +25,8 @@ ROW_TITLES = {
     "photo_trigger": "PHOTO TRIGGER",
     "countdown_duration": "COUNTDOWN",
     "cart_speed": "CART SPEED",
+    "sfx_volume": "SFX VOLUME",
+    "music_volume": "MUSIC VOLUME",
 }
 
 
@@ -43,7 +45,7 @@ class SettingsScreen(BaseScene):
         self._accept_keys: list = []
         self._back_btn = None
 
-    def enter(self) -> None:
+    def enter(self, **kwargs) -> None:
         self.root = NodePath("settings_root")
         self.root.reparentTo(self.app.base.aspect2d)
 
@@ -66,9 +68,11 @@ class SettingsScreen(BaseScene):
             pos=(0, 0, 0.65),
         )
 
-        self._make_row("photo_trigger", (0, 0, 0.30))
-        self._make_row("countdown_duration", (0, 0, 0.10))
-        self._make_row("cart_speed", (0, 0, -0.10))
+        self._make_row("photo_trigger", (0, 0, 0.35))
+        self._make_row("countdown_duration", (0, 0, 0.18))
+        self._make_row("cart_speed", (0, 0, 0.01))
+        self._make_row("sfx_volume", (0, 0, -0.16))
+        self._make_row("music_volume", (0, 0, -0.33))
 
         self._back_btn = DirectButton(
             parent=self.root,
@@ -81,11 +85,18 @@ class SettingsScreen(BaseScene):
             frameSize=(-0.3, 0.3, -0.10, 0.10),
             borderWidth=(0.005, 0.005),
             relief=1,
-            pos=(0, 0, -0.45),
+            pos=(0, 0, -0.55),
         )
         self._widgets.append(self._back_btn)
 
-        self._items = ["photo_trigger", "countdown_duration", "cart_speed", BACK_KEY]
+        self._items = [
+            "photo_trigger",
+            "countdown_duration",
+            "cart_speed",
+            "sfx_volume",
+            "music_volume",
+            BACK_KEY,
+        ]
         self._focus_idx = 0
         self._refresh_labels()
         self._refresh_focus()
@@ -178,6 +189,7 @@ class SettingsScreen(BaseScene):
         self._cycle_value(item, forward=True)
 
     def _cycle_value(self, key: str, forward: bool) -> None:
+        self.app.play_click()
         cur = self.app.config.get(key)
         if key == "photo_trigger":
             values = settings.VALID_TRIGGERS
@@ -185,11 +197,14 @@ class SettingsScreen(BaseScene):
             values = settings.VALID_DURATIONS
         elif key == "cart_speed":
             values = settings.VALID_SPEEDS
+        elif key in ("sfx_volume", "music_volume"):
+            values = settings.VALID_VOLUMES
         else:
             return
         new = settings.cycle(values, cur) if forward else settings.cycle_back(values, cur)
         self.app.config[key] = new
         settings.save(self.app.config)
+        self.app._apply_volumes()
         self._refresh_labels()
 
     def _value_label(self, key: str) -> str:
@@ -200,6 +215,8 @@ class SettingsScreen(BaseScene):
             return f"[ {v:.1f}s ]"
         if key == "cart_speed":
             return f"[ {str(v).upper()} ]"
+        if key in ("sfx_volume", "music_volume"):
+            return f"[ {int(round(float(v) * 100))}% ]"
         return f"[ {v} ]"
 
     def _refresh_labels(self) -> None:
@@ -209,8 +226,23 @@ class SettingsScreen(BaseScene):
     def _cycle(self, key: str) -> None:
         self._cycle_value(key, forward=True)
 
+    def on_escape(self) -> None:
+        self._back()
+
     def _back(self) -> None:
-        self.app.scene_manager.switch("main_menu")
+        self.app.play_click()
+        sm = self.app.scene_manager
+        if sm.overlay_stack and sm.overlay_stack[-1] is self:
+            # Entered as an overlay from the pause menu — let the underlying
+            # GameScene re-read settings, then hand control back to pause so
+            # the player's lap is preserved.
+            if sm.current is not None:
+                refresh = getattr(sm.current, "refresh_settings", None)
+                if callable(refresh):
+                    refresh()
+            sm.swap_overlay("pause")
+        else:
+            sm.switch("main_menu")
 
     def exit(self) -> None:
         for k in self._accept_keys:

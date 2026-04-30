@@ -1,5 +1,6 @@
 import pathlib
 import shutil
+import time
 from typing import List, Optional, Tuple
 
 import cv2
@@ -78,6 +79,10 @@ class GazeCalibrationWizard(QDialog):
         self._predictor_path: Optional[str] = None
         self._face_model_path: Optional[str] = None
         self._phase = self.PHASE_SETUP
+        self._undo_btn: Optional[QPushButton] = None
+        self._silhouette_state: str = "no_face"
+        self._toast_text: str = ""
+        self._toast_until_ms: int = 0
 
         self._setup_ui()
 
@@ -165,6 +170,20 @@ class GazeCalibrationWizard(QDialog):
         self._retry_btn.clicked.connect(self._on_retry)
         self._retry_btn.setVisible(False)
         btn_layout.addWidget(self._retry_btn)
+
+        self._undo_btn = QPushButton("Undo Last  [Backspace]")
+        self._undo_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._undo_btn.setFont(QFont("", 14, QFont.Weight.Bold))
+        self._undo_btn.setStyleSheet(
+            "QPushButton { background: #e17055; color: white; border: none; "
+            "padding: 10px 28px; border-radius: 6px; }"
+            "QPushButton:hover { background: #d63031; }"
+            "QPushButton:disabled { background: #636e72; color: #b2bec3; }"
+        )
+        self._undo_btn.clicked.connect(self._on_undo)
+        self._undo_btn.setVisible(False)
+        self._undo_btn.setEnabled(False)
+        btn_layout.addWidget(self._undo_btn)
 
         self._save_btn = QPushButton("Save")
         self._save_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -278,6 +297,14 @@ class GazeCalibrationWizard(QDialog):
         if event.key() == Qt.Key.Key_Space:
             if self._capture_btn.isVisible() and self._capture_btn.isEnabled():
                 self._on_capture()
+        elif event.key() == Qt.Key.Key_Backspace:
+            if (
+                self._phase == self.PHASE_CALIBRATE
+                and self._undo_btn is not None
+                and self._undo_btn.isVisible()
+                and self._undo_btn.isEnabled()
+            ):
+                self._on_undo()
         elif event.key() == Qt.Key.Key_Escape:
             self.reject()
         else:
@@ -358,12 +385,15 @@ class GazeCalibrationWizard(QDialog):
         self._setup_btn.setVisible(False)
         self._capture_btn.setVisible(True)
         self._capture_btn.setEnabled(True)
+        if self._undo_btn is not None:
+            self._undo_btn.setVisible(True)
         self._progress_bar.setVisible(True)
         self._progress_bar.setValue(0)
         self._instruction_label.setText(self._get_instruction_text())
         self._progress_label.setText(
             f"Target 1 of {len(CALIBRATION_POINTS)}"
         )
+        self._update_undo_enabled()
 
     def _get_instruction_text(self) -> str:
         return "Look at the target dot (without moving your head), then press Capture."
@@ -392,9 +422,171 @@ class GazeCalibrationWizard(QDialog):
                     self._advance_target()
 
         if self._phase == self.PHASE_CALIBRATE:
-            self._draw_fullscreen_ui(frame)
+            face_box = self._detect_face_box(frame)
+            self._draw_fullscreen_ui(frame, face_box)
 
-    def _draw_fullscreen_ui(self, frame: np.ndarray) -> None:
+    def _detect_face_box(
+        self, frame_bgr: np.ndarray
+    ) -> Optional[Tuple[int, int, int, int]]:
+        if self._inference is None:
+            return None
+        if self._is_capturing:
+            return self._inference.last_face_box
+        try:
+            rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            rects = self._inference.face_detector(rgb, 0)
+            if not rects:
+                return None
+            r = rects[0]
+            return (int(r.left()), int(r.top()), int(r.right()), int(r.bottom()))
+        except Exception:
+            return None
+
+    def _silhouette_geometry(
+        self,
+        preview_x: int,
+        preview_y: int,
+        preview_w: int,
+        preview_h: int,
+    ) -> Tuple[float, float, float, float]:
+        oval_h = preview_h * 0.82
+        oval_w = oval_h * 0.65
+        oval_cx = preview_x + preview_w / 2.0
+        oval_cy = preview_y + preview_h * 0.50
+        return oval_cx, oval_cy, oval_w, oval_h
+
+    def _compute_silhouette_state(
+        self,
+        face_box: Optional[Tuple[int, int, int, int]],
+        frame_w: int,
+        frame_h: int,
+        preview_x: int,
+        preview_y: int,
+        preview_w: int,
+        preview_h: int,
+    ) -> str:
+        if face_box is None or frame_w <= 0 or frame_h <= 0:
+            return "no_face"
+        left, top, right, bottom = face_box
+        scale_x = preview_w / frame_w
+        scale_y = preview_h / frame_h
+        face_cx = preview_x + ((left + right) / 2.0) * scale_x
+        face_cy = preview_y + ((top + bottom) / 2.0) * scale_y
+        face_w_scaled = (right - left) * scale_x
+
+        oval_cx, oval_cy, oval_w, oval_h = self._silhouette_geometry(
+            preview_x, preview_y, preview_w, preview_h
+        )
+        if preview_w <= 0 or preview_h <= 0 or oval_w <= 0:
+            return "no_face"
+
+        dx = abs(face_cx - oval_cx) / preview_w
+        dy = abs(face_cy - oval_cy) / preview_h
+        size_ratio = face_w_scaled / oval_w
+        if dx <= 0.18 and dy <= 0.22 and 0.50 <= size_ratio <= 1.55:
+            return "aligned"
+        return "drifted"
+
+    def _draw_silhouette_overlay(
+        self,
+        painter: QPainter,
+        preview_x: int,
+        preview_y: int,
+        preview_w: int,
+        preview_h: int,
+        state: str,
+    ) -> None:
+        oval_cx, oval_cy, oval_w, oval_h = self._silhouette_geometry(
+            preview_x, preview_y, preview_w, preview_h
+        )
+
+        if state == "aligned":
+            color = QColor(0, 184, 148, 220)
+            pen_style = Qt.PenStyle.SolidLine
+            hint = ""
+        elif state == "drifted":
+            color = QColor(253, 203, 110, 220)
+            pen_style = Qt.PenStyle.SolidLine
+            hint = "Center your face in the oval — keep still."
+        else:
+            color = QColor(178, 190, 195, 160)
+            pen_style = Qt.PenStyle.DashLine
+            hint = "Face not detected. Move into view."
+
+        pen = QPen(color, 3)
+        pen.setStyle(pen_style)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(
+            int(oval_cx - oval_w / 2.0),
+            int(oval_cy - oval_h / 2.0),
+            int(oval_w),
+            int(oval_h),
+        )
+
+        if not hint:
+            return
+
+        font = QFont("", 11, QFont.Weight.Bold)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        text_w = metrics.horizontalAdvance(hint)
+        text_h = metrics.height()
+        pad_x = 10
+        pad_y = 5
+        pill_w = text_w + pad_x * 2
+        pill_h = text_h + pad_y * 2
+        pill_x = int(oval_cx - pill_w / 2.0)
+        pill_y = int(oval_cy + oval_h / 2.0 + 8)
+        max_pill_x = preview_x + preview_w - pill_w - 2
+        if pill_x > max_pill_x:
+            pill_x = max_pill_x
+        if pill_x < preview_x + 2:
+            pill_x = preview_x + 2
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(0, 0, 0, 180)))
+        painter.drawRoundedRect(pill_x, pill_y, pill_w, pill_h, 6, 6)
+
+        painter.setPen(QColor(255, 255, 255))
+        painter.drawText(
+            pill_x + pad_x,
+            pill_y + pad_y + metrics.ascent(),
+            hint,
+        )
+
+    def _draw_toast(self, painter: QPainter, canvas_w: int) -> None:
+        if not self._toast_text:
+            return
+        now_ms = int(time.monotonic() * 1000)
+        if now_ms >= self._toast_until_ms:
+            return
+        font = QFont("", 14, QFont.Weight.Bold)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        text_w = metrics.horizontalAdvance(self._toast_text)
+        text_h = metrics.height()
+        pad_x = 18
+        pad_y = 8
+        pill_w = text_w + pad_x * 2
+        pill_h = text_h + pad_y * 2
+        pill_x = int((canvas_w - pill_w) / 2.0)
+        pill_y = 24
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(0, 0, 0, 180)))
+        painter.drawRoundedRect(pill_x, pill_y, pill_w, pill_h, 6, 6)
+        painter.setPen(QColor(255, 255, 255))
+        painter.drawText(
+            pill_x + pad_x,
+            pill_y + pad_y + metrics.ascent(),
+            self._toast_text,
+        )
+
+    def _draw_fullscreen_ui(
+        self,
+        frame: np.ndarray,
+        face_box: Optional[Tuple[int, int, int, int]],
+    ) -> None:
         canvas_w = self._canvas.width()
         canvas_h = self._canvas.height()
         if canvas_w < 10 or canvas_h < 10:
@@ -430,15 +622,15 @@ class GazeCalibrationWizard(QDialog):
             painter.drawLine(target_x, target_y - 50, target_x, target_y - 30)
             painter.drawLine(target_x, target_y + 30, target_x, target_y + 50)
 
-        preview_w = min(200, canvas_w // 5)
+        preview_w = min(360, canvas_w // 4)
         preview_h = int(preview_w * frame.shape[0] / frame.shape[1])
         is_bottom_right_target = (
             self._current_target < len(CALIBRATION_POINTS)
             and CALIBRATION_POINTS[self._current_target][0] > 0.7
             and CALIBRATION_POINTS[self._current_target][1] > 0.7
         )
-        preview_x = 16 if is_bottom_right_target else canvas_w - preview_w - 16
-        preview_y = canvas_h - preview_h - 16
+        preview_x = 24 if is_bottom_right_target else canvas_w - preview_w - 24
+        preview_y = canvas_h - preview_h - 24
 
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
@@ -458,6 +650,26 @@ class GazeCalibrationWizard(QDialog):
         )
         painter.drawPixmap(preview_x, preview_y, preview_pix)
 
+        self._silhouette_state = self._compute_silhouette_state(
+            face_box,
+            frame.shape[1],
+            frame.shape[0],
+            preview_x,
+            preview_y,
+            preview_pix.width(),
+            preview_pix.height(),
+        )
+        self._draw_silhouette_overlay(
+            painter,
+            preview_x,
+            preview_y,
+            preview_pix.width(),
+            preview_pix.height(),
+            self._silhouette_state,
+        )
+
+        self._draw_toast(painter, canvas_w)
+
         painter.end()
         self._canvas.setPixmap(pixmap)
 
@@ -468,6 +680,7 @@ class GazeCalibrationWizard(QDialog):
             self._is_capturing = True
             self._capture_btn.setEnabled(False)
             self._progress_bar.setValue(0)
+            self._update_undo_enabled()
 
     def _advance_target(self) -> None:
         self._current_target += 1
@@ -478,6 +691,7 @@ class GazeCalibrationWizard(QDialog):
             self._instruction_label.setText(self._get_instruction_text())
             self._capture_btn.setEnabled(True)
             self._progress_bar.setValue(0)
+            self._update_undo_enabled()
         else:
             self._finish_calibration()
 
@@ -504,11 +718,13 @@ class GazeCalibrationWizard(QDialog):
         else:
             self._instruction_label.setText("Calibration failed. Please retry.")
             self._retry_btn.setVisible(True)
+        self._update_undo_enabled()
 
     def _on_retry(self) -> None:
         self._session.reset()
         self._current_target = 0
         self._result = None
+        self._is_capturing = False
         self._capture_btn.setVisible(True)
         self._capture_btn.setEnabled(True)
         self._save_btn.setVisible(False)
@@ -516,6 +732,59 @@ class GazeCalibrationWizard(QDialog):
         self._progress_label.setText(f"Target 1 of {len(CALIBRATION_POINTS)}")
         self._progress_bar.setValue(0)
         self._instruction_label.setText(self._get_instruction_text())
+        self._update_undo_enabled()
+
+    def _on_undo(self) -> None:
+        if self._phase != self.PHASE_CALIBRATE:
+            return
+        if self._is_capturing:
+            self._undo_during_capture()
+        else:
+            self._undo_finalized_target()
+
+    def _undo_during_capture(self) -> None:
+        self._is_capturing = False
+        self._session.cancel_current_capture()
+        self._progress_bar.setValue(0)
+        self._capture_btn.setEnabled(True)
+        self._show_toast("Capture cancelled — try again.")
+        self._update_undo_enabled()
+
+    def _undo_finalized_target(self) -> None:
+        new_idx = self._session.undo_last_capture()
+        if new_idx is None:
+            return
+        undone_target_one_indexed = new_idx + 1
+        self._current_target = new_idx
+        self._result = None
+        if self._save_btn.isVisible():
+            self._save_btn.setVisible(False)
+        if self._retry_btn.isVisible():
+            self._retry_btn.setVisible(False)
+        self._capture_btn.setVisible(True)
+        self._capture_btn.setEnabled(True)
+        self._progress_bar.setValue(0)
+        self._progress_label.setText(
+            f"Target {self._current_target + 1} of {len(CALIBRATION_POINTS)}"
+        )
+        self._instruction_label.setText(self._get_instruction_text())
+        self._show_toast(f"Undid Target {undone_target_one_indexed} — please retry.")
+        self._update_undo_enabled()
+
+    def _update_undo_enabled(self) -> None:
+        if self._undo_btn is None:
+            return
+        if self._phase != self.PHASE_CALIBRATE:
+            self._undo_btn.setEnabled(False)
+            return
+        if self._is_capturing:
+            self._undo_btn.setEnabled(True)
+            return
+        self._undo_btn.setEnabled(self._session.has_finalized_captures())
+
+    def _show_toast(self, text: str, duration_ms: int = 2200) -> None:
+        self._toast_text = text
+        self._toast_until_ms = int(time.monotonic() * 1000) + duration_ms
 
     def _on_save(self) -> None:
         self.accept()

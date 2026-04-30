@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
+import os
 from enum import Enum
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -10,10 +12,14 @@ from panda3d.core import (
     Filename,
     LineSegs,
     NodePath,
+    Point2,
+    Point3,
     SamplerState,
     TransparencyAttrib,
     Vec4,
 )
+
+from game.core import asset_gen
 
 
 PHOTOS_DIR = Path(__file__).resolve().parent.parent / "photos"
@@ -69,6 +75,8 @@ class PhotoManager:
         hud_root: NodePath,
         progress_setter: Callable[[float], None],
         get_paused: Callable[[], bool],
+        get_horse_nodes: Optional[Callable[[], List[NodePath]]] = None,
+        get_map_id: Optional[Callable[[], str]] = None,
     ) -> None:
         self.base = base
         self.countdown_duration = float(countdown_duration)
@@ -76,6 +84,8 @@ class PhotoManager:
         self.hud_root = hud_root
         self.progress_setter = progress_setter
         self.get_paused = get_paused
+        self.get_horse_nodes = get_horse_nodes or (lambda: [])
+        self.get_map_id = get_map_id or (lambda: "")
 
         self.state = PhotoState.IDLE
         self.elapsed = 0.0
@@ -104,6 +114,20 @@ class PhotoManager:
         self.flash_card.setTransparency(TransparencyAttrib.MAlpha)
         self.flash_card.hide()
 
+        self._shutter = self._load_sfx("shutter.ogg")
+        self._tick_sfx = self._load_sfx("countdown_tick.ogg")
+        self._chime = self._load_sfx("photo_saved.ogg")
+        self._tick_count_fired = 0
+
+    def _load_sfx(self, name: str):
+        p = asset_gen.audio_path(name)
+        if p is None:
+            return None
+        try:
+            return self.base.loader.loadSfx(str(p))
+        except Exception:
+            return None
+
     def set_trigger_held(self, held: bool) -> None:
         self._trigger_held = held
 
@@ -128,6 +152,11 @@ class PhotoManager:
             try:
                 self.base.win.saveScreenshot(Filename.fromOsSpecific(str(path)))
                 saved_path = path
+                if self._chime is not None:
+                    try:
+                        self._chime.play()
+                    except Exception:
+                        pass
             except Exception as e:
                 print(f"[photo_manager] save failed: {e}")
         finally:
@@ -135,7 +164,50 @@ class PhotoManager:
                 self.hud_root.show()
             if not flash_was_hidden:
                 self.flash_card.show()
+        if saved_path is not None:
+            self._write_sidecar(saved_path)
         return saved_path
+
+    def _species_in_frame(self) -> List[str]:
+        # v1: pure frustum check via Lens.project. Counts horses inside the camera
+        # frustum even if occluded by another horse. If false-positives become a
+        # problem in playtest, swap in a CollisionTraverser ray from camera to
+        # each horse center and reject occluded ones.
+        try:
+            horses = self.get_horse_nodes()
+        except Exception:
+            horses = []
+        seen: List[str] = []
+        for h in horses:
+            try:
+                if h.isEmpty():
+                    continue
+                world_pos = h.getPos(self.base.render)
+                # Aim at the horse's torso, not its feet, to reduce edge clipping.
+                world_pos = Point3(world_pos.x, world_pos.y, world_pos.z + 1.6)
+                cam_space = self.base.camera.getRelativePoint(self.base.render, world_pos)
+                projected = Point2()
+                if not self.base.camLens.project(cam_space, projected):
+                    continue
+                species_id = h.getNetTag("species_id")
+                if species_id and species_id not in seen:
+                    seen.append(species_id)
+            except Exception:
+                continue
+        return seen
+
+    def _write_sidecar(self, png_path: Path) -> None:
+        try:
+            data = {
+                "map_id": self.get_map_id(),
+                "species_ids": self._species_in_frame(),
+            }
+            sidecar = png_path.with_suffix(".json")
+            tmp = sidecar.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(data, indent=2))
+            os.replace(tmp, sidecar)
+        except Exception as e:
+            print(f"[photo_manager] sidecar write failed: {e}")
 
     def _dispose_preview(self) -> None:
         if self.preview_node is not None and not self.preview_node.isEmpty():
@@ -234,6 +306,11 @@ class PhotoManager:
         self.flash_card.show()
         self.progress_setter(0.0)
         self._baseline_depth = None
+        if self._shutter is not None:
+            try:
+                self._shutter.play()
+            except Exception:
+                pass
 
     def _enter_cooldown(self) -> None:
         self.state = PhotoState.COOLDOWN
@@ -255,6 +332,7 @@ class PhotoManager:
                 self.elapsed = 0.0
                 self._baseline_depth = self.get_depth()
                 self.progress_setter(0.0)
+                self._tick_count_fired = 0
                 print(f"[photo] hold start: baseline_depth={self._baseline_depth}", flush=True)
             else:
                 self.progress_setter(0.0)
@@ -264,6 +342,14 @@ class PhotoManager:
             self.elapsed += dt_
             progress = _clamp(self.elapsed / max(self.countdown_duration, 1e-3), 0.0, 1.0)
             self.progress_setter(progress)
+            if self._tick_sfx is not None:
+                target_ticks = min(3, int(progress * 4))
+                while self._tick_count_fired < target_ticks:
+                    try:
+                        self._tick_sfx.play()
+                    except Exception:
+                        pass
+                    self._tick_count_fired += 1
             if self._baseline_depth is None:
                 cur = self.get_depth()
                 if cur is not None:

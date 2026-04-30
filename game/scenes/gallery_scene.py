@@ -31,10 +31,11 @@ class GalleryScene(BaseScene):
         self._widgets: list = []
         self._fullscreen_widget = None
         self._fullscreen_root: NodePath | None = None
+        self._full_idx: int = 0
         self._photos: List[Path] = []
         self._accept_keys: list = []
 
-    def enter(self) -> None:
+    def enter(self, **kwargs) -> None:
         self.root = NodePath("gallery_root")
         self.root.reparentTo(self.app.base.aspect2d)
         font = self.app.font
@@ -87,8 +88,6 @@ class GalleryScene(BaseScene):
         else:
             self._build_grid()
 
-        self.app.base.accept("escape", self._back)
-        self._accept_keys.append("escape")
 
     def _build_grid(self) -> None:
         cols = 3
@@ -142,7 +141,12 @@ class GalleryScene(BaseScene):
         self._widgets.append(btn)
 
     def _open_full(self, path: Path) -> None:
+        self.app.play_click()
         self._close_full()
+        try:
+            self._full_idx = self._photos.index(path)
+        except ValueError:
+            self._full_idx = 0
         self._fullscreen_root = NodePath("gallery_full")
         self._fullscreen_root.reparentTo(self.app.base.aspect2d)
         DirectFrame(
@@ -176,17 +180,38 @@ class GalleryScene(BaseScene):
             relief=1,
             pos=(0, 0, -0.85),
         )
+        self.app.base.accept("arrow_left", self._full_prev)
+        self.app.base.accept("arrow_right", self._full_next)
+
+    def _full_step(self, delta: int) -> None:
+        if not self._photos or self._fullscreen_root is None:
+            return
+        new_idx = (self._full_idx + delta) % len(self._photos)
+        self._open_full(self._photos[new_idx])
+
+    def _full_prev(self) -> None:
+        self._full_step(-1)
+
+    def _full_next(self) -> None:
+        self._full_step(1)
 
     def _close_full(self) -> None:
+        self.app.base.ignore("arrow_left")
+        self.app.base.ignore("arrow_right")
         if self._fullscreen_root is not None:
+            self.app.play_click()
             self._fullscreen_root.removeNode()
             self._fullscreen_root = None
             self._fullscreen_widget = None
+
+    def on_escape(self) -> None:
+        self._back()
 
     def _back(self) -> None:
         if self._fullscreen_root is not None:
             self._close_full()
             return
+        self.app.play_click()
         self.app.scene_manager.switch("main_menu")
 
     def exit(self) -> None:

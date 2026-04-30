@@ -13,11 +13,17 @@ def _register_modes(registry: ModeRegistry) -> None:
     from src.core.modes.two_camera_head_pose import TwoCameraHeadPoseMode
     from src.core.modes.eye_gaze import EyeGazeMode
     from src.core.modes.eye_gaze_bubble import EyeGazeBubbleMode
+    from src.core.modes.hybrid.safe_zone import HybridSafeZoneMode
+    from src.core.modes.hybrid.anchor_offset import HybridAnchorOffsetMode
+    from src.core.modes.hybrid.smooth_fade import HybridSmoothFadeMode
 
     registry.register(OneCameraHeadPoseMode)
     registry.register(TwoCameraHeadPoseMode)
     registry.register(EyeGazeMode)
     registry.register(EyeGazeBubbleMode)
+    registry.register(HybridSafeZoneMode)
+    registry.register(HybridAnchorOffsetMode)
+    registry.register(HybridSmoothFadeMode)
 
 
 def initialize_app() -> MainWindow:

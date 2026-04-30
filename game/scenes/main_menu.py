@@ -44,7 +44,7 @@ class MainMenu(BaseScene):
         self._focus_idx: int = 0
         self._accept_keys: list = []
 
-    def enter(self) -> None:
+    def enter(self, **kwargs) -> None:
         self.root = NodePath("main_menu_root")
         self.root.reparentTo(self.app.base.aspect2d)
 
@@ -81,9 +81,9 @@ class MainMenu(BaseScene):
         )
         self._sub = sub
 
-        self._button_texts = ["START RIDE", "GALLERY", "SETTINGS", "QUIT"]
-        self._commands = [self._start_ride, self._gallery, self._settings, self._quit]
-        positions = [(0, 0, 0.15), (0, 0, 0.0), (0, 0, -0.15), (0, 0, -0.30)]
+        self._button_texts = ["MAPS", "DEX", "GALLERY", "SETTINGS", "QUIT"]
+        self._commands = [self._maps, self._dex, self._gallery, self._settings, self._quit]
+        positions = [(0, 0, 0.20), (0, 0, 0.05), (0, 0, -0.10), (0, 0, -0.25), (0, 0, -0.40)]
         self._buttons = [
             make_button(self.root, txt, cmd, pos, font)
             for txt, cmd, pos in zip(self._button_texts, self._commands, positions)
@@ -123,16 +123,24 @@ class MainMenu(BaseScene):
         if 0 <= self._focus_idx < len(self._commands):
             self._commands[self._focus_idx]()
 
-    def _start_ride(self) -> None:
-        self.app.scene_manager.switch("game")
+    def _maps(self) -> None:
+        self.app.play_click()
+        self.app.scene_manager.switch("map_select")
+
+    def _dex(self) -> None:
+        self.app.play_click()
+        self.app.scene_manager.switch("dex")
 
     def _gallery(self) -> None:
+        self.app.play_click()
         self.app.scene_manager.switch("gallery")
 
     def _settings(self) -> None:
+        self.app.play_click()
         self.app.scene_manager.switch("settings")
 
     def _quit(self) -> None:
+        self.app.play_click()
         self.app.shutdown()
 
     def exit(self) -> None:

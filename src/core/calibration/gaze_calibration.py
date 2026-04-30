@@ -55,6 +55,21 @@ class GazeCalibrationSession:
         self._current_capture.clear()
         return (avg_yaw, avg_pitch)
 
+    def undo_last_capture(self) -> Optional[int]:
+        if not self._gaze_samples:
+            return None
+        self._gaze_samples.pop()
+        self._target_points.pop()
+        self._controller.affine = None
+        self._controller.norm_bounds = None
+        return len(self._gaze_samples)
+
+    def cancel_current_capture(self) -> None:
+        self._current_capture.clear()
+
+    def has_finalized_captures(self) -> bool:
+        return len(self._gaze_samples) > 0
+
     def compute_calibration(self) -> Optional[Dict]:
         if len(self._gaze_samples) < 5:
             return None

@@ -5,16 +5,26 @@ from typing import Dict, List, Optional
 
 from panda3d.core import (
     DynamicTextFont,
+    GraphicsPipeSelection,
     WindowProperties,
     loadPrcFileData,
 )
 
 
 loadPrcFileData("", "window-title Horsin' Around")
-loadPrcFileData("", "fullscreen #t")
+# Borderless windowed at native desktop res. Exclusive fullscreen on X11
+# triggers a videomode switch that invalidates absolute-screen pointer mappings.
+loadPrcFileData("", "fullscreen #f")
+loadPrcFileData("", "undecorated #t")
+loadPrcFileData("", "win-origin 0 0")
 loadPrcFileData("", "sync-video #t")
 loadPrcFileData("", "show-frame-rate-meter #f")
-loadPrcFileData("", "audio-library-name null")
+
+_pipe = GraphicsPipeSelection.getGlobalPtr().makeDefaultPipe()
+if _pipe is not None:
+    _w, _h = _pipe.getDisplayWidth(), _pipe.getDisplayHeight()
+    if _w > 0 and _h > 0:
+        loadPrcFileData("", f"win-size {_w} {_h}")
 
 
 from direct.showbase.ShowBase import ShowBase
@@ -23,9 +33,11 @@ from direct.task import Task
 from game.core import asset_gen, settings
 from game.core.depth_client import DepthClient
 from game.scenes.base_scene import BaseScene
+from game.scenes.dex_scene import DexScene
 from game.scenes.game_scene import GameScene
 from game.scenes.gallery_scene import GalleryScene
 from game.scenes.main_menu import MainMenu
+from game.scenes.map_select import MapSelectScene
 from game.scenes.pause_overlay import PauseOverlay
 from game.scenes.settings_screen import SettingsScreen
 
@@ -63,7 +75,7 @@ class SceneManager:
             prev.exit()
         self.app.previous_scene_name = prev_name
         self.current = self.scenes[name]
-        self.current.enter()
+        self.current.enter(**kwargs)
         self._set_cursor(self.current.cursor_visible)
 
     def push_overlay(self, name: str) -> None:
@@ -88,6 +100,30 @@ class SceneManager:
                 self.current.frozen = False
                 self._set_cursor(self.current.cursor_visible)
 
+    def swap_overlay(self, name: str) -> None:
+        # Replace the topmost overlay without unfreezing self.current. Used by
+        # pause↔settings so the underlying GameScene survives the round-trip.
+        if name not in self.scenes:
+            return
+        if not self.overlay_stack:
+            self.push_overlay(name)
+            return
+        top = self.overlay_stack.pop()
+        top.exit()
+        overlay = self.scenes[name]
+        overlay.enter()
+        self.overlay_stack.append(overlay)
+        self._set_cursor(overlay.cursor_visible)
+
+    def dispatch_escape(self) -> None:
+        # Single source of truth for ESC. Top overlay wins so e.g. settings
+        # overlay's BACK fires instead of GameScene re-pushing pause on top.
+        if self.overlay_stack:
+            self.overlay_stack[-1].on_escape()
+            return
+        if self.current is not None:
+            self.current.on_escape()
+
     def update(self, dt: float) -> None:
         if self.current is not None:
             self.current.update(dt)
@@ -108,6 +144,13 @@ class App:
 
         self.font = self._load_font()
 
+        self._ui_click = self._load_sfx("ui_click.ogg")
+        self._ambient_music = self._load_music("ambient.ogg")
+        self._apply_volumes()
+        if self._ambient_music is not None:
+            self._ambient_music.setLoop(True)
+            self._ambient_music.play()
+
         self.depth_client = DepthClient()
         self.depth_client.start()
 
@@ -118,8 +161,15 @@ class App:
         self.scene_manager.register(GameScene(self))
         self.scene_manager.register(PauseOverlay(self))
         self.scene_manager.register(GalleryScene(self))
+        self.scene_manager.register(MapSelectScene(self))
+        self.scene_manager.register(DexScene(self))
 
         self.base.taskMgr.add(self._tick, "horsin_tick")
+
+        # ESC is bound here exactly once and never re-bound, so per-scene
+        # accept('escape', ...) calls can never overwrite each other. Scenes
+        # opt in by overriding `on_escape`.
+        self.base.accept("escape", self.scene_manager.dispatch_escape)
 
         self.scene_manager.switch("main_menu")
 
@@ -136,12 +186,57 @@ class App:
         except Exception:
             return None
 
+    def _load_sfx(self, name: str):
+        p = asset_gen.audio_path(name)
+        if p is None:
+            return None
+        try:
+            return self.base.loader.loadSfx(str(p))
+        except Exception:
+            return None
+
+    def _load_music(self, name: str):
+        p = asset_gen.audio_path(name)
+        if p is None:
+            return None
+        try:
+            return self.base.loader.loadMusic(str(p))
+        except Exception:
+            return None
+
+    def _apply_volumes(self) -> None:
+        sfx_v = float(self.config.get("sfx_volume", 0.75))
+        music_v = float(self.config.get("music_volume", 0.5))
+        try:
+            for mgr in self.base.sfxManagerList:
+                mgr.setVolume(sfx_v)
+        except Exception:
+            pass
+        try:
+            if self.base.musicManager is not None:
+                self.base.musicManager.setVolume(music_v)
+        except Exception:
+            pass
+
+    def play_click(self) -> None:
+        if self._ui_click is None:
+            return
+        try:
+            self._ui_click.play()
+        except Exception:
+            pass
+
     def _tick(self, task: "Task.Task") -> int:
         dt = globalClock.getDt()
         self.scene_manager.update(dt)
         return Task.cont
 
     def shutdown(self) -> None:
+        try:
+            if self._ambient_music is not None:
+                self._ambient_music.stop()
+        except Exception:
+            pass
         try:
             self.depth_client.stop()
         except Exception:

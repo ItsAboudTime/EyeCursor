@@ -26,7 +26,7 @@ class PauseOverlay(BaseScene):
         self._focus_idx: int = 0
         self._accept_keys: list = []
 
-    def enter(self) -> None:
+    def enter(self, **kwargs) -> None:
         self.root = NodePath("pause_root")
         self.root.reparentTo(self.app.base.aspect2d)
 
@@ -111,13 +111,19 @@ class PauseOverlay(BaseScene):
             pos=pos,
         )
 
+    def on_escape(self) -> None:
+        self._resume()
+
     def _resume(self) -> None:
+        self.app.play_click()
         self.app.scene_manager.pop_overlay()
 
     def _settings(self) -> None:
-        self.app.scene_manager.switch("settings", from_pause=True)
+        self.app.play_click()
+        self.app.scene_manager.swap_overlay("settings")
 
     def _quit_to_menu(self) -> None:
+        self.app.play_click()
         self.app.scene_manager.pop_overlay()
         self.app.scene_manager.switch("main_menu")
 

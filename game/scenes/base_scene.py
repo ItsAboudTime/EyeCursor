@@ -11,11 +11,17 @@ class BaseScene:
         self.app = app
         self.frozen: bool = False
 
-    def enter(self) -> None:
+    def enter(self, **kwargs) -> None:
         raise NotImplementedError
 
     def exit(self) -> None:
         raise NotImplementedError
 
     def update(self, dt: float) -> None:
+        return None
+
+    def on_escape(self) -> None:
+        # Override to react to ESC. Routed by SceneManager — top overlay first,
+        # then current scene. Default is no-op so leaf scenes (e.g. main menu)
+        # can simply ignore the key.
         return None

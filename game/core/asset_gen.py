@@ -10,6 +10,7 @@ import numpy as np
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 TEXTURES_DIR = ASSETS_DIR / "textures"
 FONTS_DIR = ASSETS_DIR / "fonts"
+AUDIO_DIR = ASSETS_DIR / "audio"
 
 GRASS_PATH = TEXTURES_DIR / "grass.png"
 SKY_PATH = TEXTURES_DIR / "sky.png"
@@ -55,6 +56,7 @@ def _try_download_font(path: Path) -> None:
 def ensure_assets() -> None:
     TEXTURES_DIR.mkdir(parents=True, exist_ok=True)
     FONTS_DIR.mkdir(parents=True, exist_ok=True)
+    AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     if not GRASS_PATH.exists():
         try:
             _make_grass(GRASS_PATH)
@@ -79,3 +81,8 @@ def grass_path() -> Path | None:
 
 def sky_path() -> Path | None:
     return SKY_PATH if SKY_PATH.exists() else None
+
+
+def audio_path(name: str) -> Path | None:
+    p = AUDIO_DIR / name
+    return p if p.exists() else None

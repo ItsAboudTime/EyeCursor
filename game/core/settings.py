@@ -9,11 +9,14 @@ DEFAULTS: Dict[str, Any] = {
     "photo_trigger": "left_click",
     "countdown_duration": 1.0,
     "cart_speed": "normal",
+    "sfx_volume": 0.75,
+    "music_volume": 0.5,
 }
 
 VALID_TRIGGERS = ("left_click", "spacebar", "right_click")
 VALID_DURATIONS = (0.5, 1.0, 1.5, 2.0)
 VALID_SPEEDS = ("slow", "normal", "fast")
+VALID_VOLUMES = (0.0, 0.25, 0.5, 0.75, 1.0)
 
 SPEED_VALUES = {"slow": 1.5, "normal": 3.0, "fast": 6.0}
 
@@ -28,6 +31,10 @@ def _validate(d: Dict[str, Any]) -> Dict[str, Any]:
         out["countdown_duration"] = d["countdown_duration"]
     if d.get("cart_speed") in VALID_SPEEDS:
         out["cart_speed"] = d["cart_speed"]
+    if d.get("sfx_volume") in VALID_VOLUMES:
+        out["sfx_volume"] = d["sfx_volume"]
+    if d.get("music_volume") in VALID_VOLUMES:
+        out["music_volume"] = d["music_volume"]
     return out
 
 

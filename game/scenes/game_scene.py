@@ -17,9 +17,11 @@ from panda3d.core import (
 
 from game.core import asset_gen, settings
 from game.core.camera_controller import CameraController
+from game.core.cart_builder import build_cart
 from game.core.horse_spawner import spawn_horses
+from game.core.maps import DEFAULT_MAP_ID, get_map
 from game.core.photo_manager import PhotoManager, PhotoState
-from game.core.track import OvalTrack
+from game.core.rail_builder import build_rails
 from game.scenes.base_scene import BaseScene
 
 
@@ -41,7 +43,7 @@ class GameScene(BaseScene):
         self.camera_pivot: NodePath | None = None
         self.hud_root: NodePath | None = None
         self.fill_ring_node: NodePath | None = None
-        self.track: OvalTrack | None = None
+        self.track = None
         self.t_param: float = 0.0
         self.speed: float = 3.0
         self.cam_ctrl: CameraController | None = None
@@ -50,19 +52,28 @@ class GameScene(BaseScene):
         self._accept_keys: list = []
         self._has_camera_state = False
         self._saved_cam_parent = None
+        self.map_id: str = DEFAULT_MAP_ID
+        self.spawned_horses: List[NodePath] = []
+        self._cart_sfx = None
 
-    def enter(self) -> None:
+    def enter(self, **kwargs) -> None:
         self.frozen = False
         base = self.app.base
+
+        self.map_id = kwargs.get("map_id", DEFAULT_MAP_ID)
+        map_def = get_map(self.map_id)
 
         self.world = NodePath("game_world")
         self.world.reparentTo(base.render)
 
         self._build_environment()
 
-        self.track = OvalTrack(a=30.0, b=18.0)
+        self.track = map_def.make_track()
+        build_rails(base.loader, self.world, self.track)
+
         self.cart = NodePath("cart")
         self.cart.reparentTo(self.world)
+        build_cart(base.loader, self.cart)
 
         self.camera_pivot = NodePath("camera_pivot")
         self.camera_pivot.reparentTo(self.cart)
@@ -78,7 +89,9 @@ class GameScene(BaseScene):
 
         self.cam_ctrl = CameraController(base, self.camera_pivot)
 
-        spawn_horses(base.loader, self.world, self.track.a, self.track.b, count=10)
+        self.spawned_horses = spawn_horses(
+            base.loader, self.world, self.track, count=10, map_id=self.map_id
+        )
 
         self._build_hud()
 
@@ -94,10 +107,22 @@ class GameScene(BaseScene):
             hud_root=self.hud_root,
             progress_setter=self._update_fill_ring,
             get_paused=lambda: self.frozen,
+            get_horse_nodes=lambda: list(self.spawned_horses),
+            get_map_id=lambda: self.map_id,
         )
 
         self._bind_inputs()
         self._has_camera_state = True
+
+        cart_audio = asset_gen.audio_path("minecart_loop.ogg")
+        if cart_audio is not None:
+            try:
+                self._cart_sfx = base.loader.loadSfx(str(cart_audio))
+                if self._cart_sfx is not None:
+                    self._cart_sfx.setLoop(True)
+                    self._cart_sfx.play()
+            except Exception:
+                self._cart_sfx = None
 
     def _build_environment(self) -> None:
         base = self.app.base
@@ -215,9 +240,6 @@ class GameScene(BaseScene):
         base = self.app.base
         trigger = self.app.config.get("photo_trigger", "left_click")
 
-        base.accept("escape", self._on_escape)
-        self._accept_keys.append("escape")
-
         if trigger == "left_click":
             press, release = "mouse1", "mouse1-up"
         elif trigger == "right_click":
@@ -235,7 +257,20 @@ class GameScene(BaseScene):
             base.ignore(k)
         self._accept_keys = []
 
-    def _on_escape(self) -> None:
+    def refresh_settings(self) -> None:
+        # Apply config changes without rebuilding the ride. Called when the
+        # in-ride settings overlay closes so trigger / speed / countdown
+        # changes take effect this lap instead of the next one.
+        self._unbind_inputs()
+        self._bind_inputs()
+        speed_name = self.app.config.get("cart_speed", "normal")
+        self.speed = settings.SPEED_VALUES.get(speed_name, 3.0)
+        if self.photo is not None:
+            self.photo.countdown_duration = float(
+                self.app.config.get("countdown_duration", 1.0)
+            )
+
+    def on_escape(self) -> None:
         self.app.scene_manager.push_overlay("pause")
 
     def _on_trigger_press(self) -> None:
@@ -267,6 +302,12 @@ class GameScene(BaseScene):
 
     def exit(self) -> None:
         self._unbind_inputs()
+        if self._cart_sfx is not None:
+            try:
+                self._cart_sfx.stop()
+            except Exception:
+                pass
+            self._cart_sfx = None
         if self.photo is not None:
             self.photo.cleanup()
             self.photo = None
@@ -293,4 +334,5 @@ class GameScene(BaseScene):
         self.camera_pivot = None
         self.fill_ring_node = None
         self.track = None
+        self.spawned_horses = []
         self._lights = []
