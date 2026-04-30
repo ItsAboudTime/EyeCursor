@@ -5,6 +5,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+from src.core.devices.camera_identity import warn_if_single_camera_mismatch
 from src.core.modes.base import TrackingMode
 from src.core.modes.one_camera_head_pose import _apply_cursor_settings
 
@@ -76,6 +77,12 @@ class EyeGazeMode(TrackingMode):
         from src.eye_tracking.controllers.gaze_cursor_controller import GazeCursorController
 
         calib = profile_calibrations["eye_gaze"]
+
+        warning = warn_if_single_camera_mismatch(
+            calib, selected_cameras[0], label="gaze calibration"
+        )
+        if warning:
+            print(f"[mode] {warning}")
 
         inference_kwargs = {"weights": pathlib.Path(calib["weights_path"])}
         if calib.get("predictor_path"):

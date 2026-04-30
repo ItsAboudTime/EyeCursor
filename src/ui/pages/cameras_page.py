@@ -52,11 +52,20 @@ class CameraCard(QFrame):
         info_layout.addWidget(
             QLabel(f"{camera_info.width}x{camera_info.height}"), 1, 1
         )
-        info_layout.addWidget(QLabel("Label:"), 2, 0)
+        info_layout.addWidget(QLabel("Stable ID:"), 2, 0)
+        sid_label = QLabel(camera_info.stable_id or "unknown")
+        sid_label.setStyleSheet("font-family: monospace; font-size: 10px; color: #636e72;")
+        sid_label.setWordWrap(True)
+        sid_label.setToolTip(
+            "Identifier the app uses to recognise this physical camera "
+            "across reboots and USB replugs. Calibrations are bound to it."
+        )
+        info_layout.addWidget(sid_label, 2, 1)
+        info_layout.addWidget(QLabel("Label:"), 3, 0)
         self._label_edit = QLineEdit(camera_info.label)
         self._label_edit.setPlaceholderText("Camera name...")
         self._label_edit.textChanged.connect(self._on_label_changed)
-        info_layout.addWidget(self._label_edit, 2, 1)
+        info_layout.addWidget(self._label_edit, 3, 1)
         layout.addLayout(info_layout)
 
         btn_layout = QHBoxLayout()
@@ -156,6 +165,15 @@ class CamerasPage(QWidget):
             "QPushButton { background: #636e72; color: white; border: none; "
             "padding: 6px 14px; border-radius: 4px; }"
             "QPushButton:hover { background: #2d3436; }"
+        )
+        # Stereo modes now match calibration to physical cameras by USB
+        # identity, so a /dev/videoN reshuffle is handled automatically.
+        # This button is still useful as a manual override for users with
+        # two identical-model cameras (whose USB serials may collide).
+        swap_btn.setToolTip(
+            "Swap which camera is treated as left vs right. Usually not "
+            "needed — the app re-detects camera identity automatically. "
+            "Use this only if your stereo image looks horizontally mirrored."
         )
         swap_btn.clicked.connect(self._on_swap)
         sel_layout.addWidget(swap_btn, 3, 0, 1, 2)

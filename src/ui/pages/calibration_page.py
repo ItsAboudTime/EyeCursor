@@ -13,6 +13,10 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Signal
 
+from src.core.devices.camera_identity import (
+    annotate_single_camera_calibration,
+    annotate_stereo_calibration,
+)
 from src.core.devices.camera_manager import CameraManager
 from src.core.profiles.profile_manager import ProfileManager
 from src.ui.components.calibration_score import CalibrationScoreBadge
@@ -208,6 +212,9 @@ class CalibrationPage(QWidget):
         if wizard.exec() == wizard.DialogCode.Accepted:
             result = wizard.get_result()
             if result:
+                annotate_single_camera_calibration(
+                    result, camera_index, self._camera_manager
+                )
                 self._profile_manager.save_calibration(
                     self._active_profile_id, "one_camera_head_pose", result
                 )
@@ -224,6 +231,9 @@ class CalibrationPage(QWidget):
         if wizard.exec() == wizard.DialogCode.Accepted:
             result = wizard.get_result()
             if result:
+                annotate_single_camera_calibration(
+                    result, camera_index, self._camera_manager
+                )
                 self._profile_manager.save_calibration(
                     self._active_profile_id, "eye_gestures", result
                 )
@@ -256,6 +266,9 @@ class CalibrationPage(QWidget):
         if wizard.exec() == wizard.DialogCode.Accepted:
             result = wizard.get_result()
             if result:
+                annotate_stereo_calibration(
+                    result, left, right, self._camera_manager
+                )
                 self._profile_manager.save_stereo_calibration(
                     self._active_profile_id, result
                 )
@@ -272,6 +285,9 @@ class CalibrationPage(QWidget):
         if wizard.exec() == wizard.DialogCode.Accepted:
             result = wizard.get_result()
             if result:
+                annotate_single_camera_calibration(
+                    result, camera_index, self._camera_manager
+                )
                 self._profile_manager.save_calibration(
                     self._active_profile_id, "eye_gaze", result
                 )

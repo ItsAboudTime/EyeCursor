@@ -6,6 +6,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+from src.core.devices.camera_identity import match_stereo_cameras
 from src.core.modes._viz_helpers import derive_last_action
 from src.core.modes.base import TrackingMode
 from src.core.modes.one_camera_head_pose import (
@@ -96,12 +97,15 @@ class TwoCameraHeadPoseMode(TrackingMode):
         if not stereo:
             return False, "Stereo calibration required. Go to Calibration to calibrate."
 
-        if (stereo.get("left_camera_id") != selected_cameras[0] or
-                stereo.get("right_camera_id") != selected_cameras[1]):
-            return (
-                False,
-                "Stereo calibration was created for different cameras. Please recalibrate.",
-            )
+        match = match_stereo_cameras(stereo, selected_cameras)
+        if not match.ok:
+            return False, match.reason
+        # Re-map the user's selection to the indices the calibration was
+        # built for, in case the cameras moved to different /dev/videoN
+        # nodes since calibration time. ``selected_cameras`` is mutated in
+        # place so ``start()`` (called later by the worker) sees the
+        # remapped values.
+        selected_cameras[:] = match.resolved_indices
 
         if not profile_calibrations.get("two_camera_head_pose"):
             if not profile_calibrations.get("one_camera_head_pose"):

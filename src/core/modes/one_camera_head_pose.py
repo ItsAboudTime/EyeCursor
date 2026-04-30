@@ -3,6 +3,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import cv2
 
+from src.core.devices.camera_identity import warn_if_single_camera_mismatch
 from src.core.modes._viz_helpers import derive_last_action
 from src.core.modes.base import TrackingMode
 from src.face_tracking.controllers.blendshape_gesture_constants import (
@@ -141,6 +142,18 @@ class OneCameraHeadPoseMode(TrackingMode):
 
         calib = profile_calibrations["one_camera_head_pose"]
         gesture_calib = profile_calibrations.get("eye_gestures")
+
+        # Surface a non-blocking warning if either calibration was created
+        # on a different physical camera than the one the user picked.
+        for cal_obj, cal_label in (
+            (calib, "head pose calibration"),
+            (gesture_calib, "facial gesture calibration"),
+        ):
+            warning = warn_if_single_camera_mismatch(
+                cal_obj, selected_cameras[0], label=cal_label
+            )
+            if warning:
+                print(f"[mode] {warning}")
 
         camera = cv2.VideoCapture(selected_cameras[0])
         if not camera.isOpened():

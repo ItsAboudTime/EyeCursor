@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, QTimer, Slot
 from PySide6.QtGui import QFont, QIcon
 
+from src.core.devices.calibration_migration import migrate_all_profiles
 from src.core.devices.camera_manager import CameraManager
 from src.core.modes.base import TrackingMode
 from src.core.modes.registry import ModeRegistry
@@ -164,6 +165,14 @@ class MainWindow(QMainWindow):
             self._active_profile = profiles[0]
         else:
             self._active_profile = self._profile_manager.create_profile("Default User")
+
+        # Best-effort backfill of stable camera IDs into legacy calibration
+        # files. No-op when the cameras can't be fingerprinted right now.
+        try:
+            migrate_all_profiles(self._profile_manager, self._camera_manager)
+        except Exception:
+            # Migration must never block startup.
+            pass
 
         self._calibration_page.set_dependencies(
             camera_manager=self._camera_manager,

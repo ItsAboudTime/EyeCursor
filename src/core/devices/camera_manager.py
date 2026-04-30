@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 
 from src.core.devices.camera_model import CameraInfo
+from src.core.devices.stable_camera_id import stable_id_for_index
 
 
 class CameraManager:
@@ -13,6 +14,9 @@ class CameraManager:
 
     def __init__(self) -> None:
         self._open_cameras: Dict[int, cv2.VideoCapture] = {}
+        # Cache the last discovered list so callers (modes, calibrations)
+        # can resolve an index -> stable_id without re-scanning hardware.
+        self._last_scan: List[CameraInfo] = []
 
     def discover_cameras(self) -> List[CameraInfo]:
         indices = self._candidate_indices()
@@ -27,8 +31,16 @@ class CameraManager:
                 cap.release()
                 continue
             h, w = frame.shape[:2]
-            cameras.append(CameraInfo(index=idx, width=w, height=h))
+            cameras.append(
+                CameraInfo(
+                    index=idx,
+                    width=w,
+                    height=h,
+                    stable_id=stable_id_for_index(idx),
+                )
+            )
             cap.release()
+        self._last_scan = cameras
         return cameras
 
     def open_camera(self, index: int) -> cv2.VideoCapture:
@@ -69,6 +81,32 @@ class CameraManager:
     def is_open(self, index: int) -> bool:
         cap = self._open_cameras.get(index)
         return cap is not None and cap.isOpened()
+
+    def stable_id_for_index(self, index: int) -> Optional[str]:
+        """Return the stable ID for a `/dev/videoN` index without re-scanning.
+
+        Falls back to a fresh sysfs read when the index isn't in the cached
+        scan results.
+        """
+        for cam in self._last_scan:
+            if cam.index == index:
+                return cam.stable_id
+        return stable_id_for_index(index)
+
+    def index_for_stable_id(self, stable_id: Optional[str]) -> Optional[int]:
+        """Find the current /dev/videoN index for a previously-seen stable ID.
+
+        Uses the cached scan list, falling back to a fresh discovery if the
+        cache is empty. Returns ``None`` if the camera with that stable ID
+        is not currently connected.
+        """
+        if not stable_id:
+            return None
+        cameras = self._last_scan or self.discover_cameras()
+        for cam in cameras:
+            if cam.stable_id == stable_id:
+                return cam.index
+        return None
 
     def _candidate_indices(self) -> List[int]:
         if platform.system() == "Linux":

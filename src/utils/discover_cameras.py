@@ -16,6 +16,8 @@ Press q to quit all preview windows.
 import os
 import cv2
 
+from src.core.devices.stable_camera_id import stable_id_for_index
+
 
 def discover():
     # Use V4L2 backend directly to avoid noisy fallback attempts.
@@ -26,13 +28,16 @@ def discover():
     )
 
     caps = {}
+    sids = {}
     for i in video_devices:
         cap = cv2.VideoCapture(i, cv2.CAP_V4L2)
         if cap.isOpened():
             ret, frame = cap.read()
             if ret:
                 caps[i] = cap
-                print(f"  Camera index {i}: {frame.shape[1]}x{frame.shape[0]}")
+                sid = stable_id_for_index(i) or "no-stable-id"
+                sids[i] = sid
+                print(f"  Camera index {i}: {frame.shape[1]}x{frame.shape[0]}  [{sid}]")
             else:
                 cap.release()
         else:
