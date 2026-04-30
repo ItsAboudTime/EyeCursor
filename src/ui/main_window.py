@@ -140,12 +140,6 @@ class MainWindow(QMainWindow):
         self._dashboard_page.start_requested.connect(self._on_start_tracking)
         self._dashboard_page.pause_requested.connect(self._on_pause_tracking)
         self._dashboard_page.stop_requested.connect(self._on_stop_tracking)
-        self._dashboard_page.recalibrate_requested.connect(
-            lambda: self._sidebar.setCurrentRow(3)
-        )
-        self._dashboard_page.change_mode_requested.connect(
-            lambda: self._sidebar.setCurrentRow(1)
-        )
         self._dashboard_page.visualize_requested.connect(self._on_visualize_requested)
 
     def _get_active_camera_index(self) -> int:

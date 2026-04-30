@@ -16,8 +16,6 @@ class DashboardPage(QWidget):
     start_requested = Signal()
     pause_requested = Signal()
     stop_requested = Signal()
-    recalibrate_requested = Signal()
-    change_mode_requested = Signal()
     visualize_requested = Signal()
 
     def __init__(self, parent=None) -> None:
@@ -105,6 +103,21 @@ class DashboardPage(QWidget):
             "QPushButton:hover { background: #feca57; }"
         )
         self._pause_btn.clicked.connect(self.pause_requested.emit)
+
+        self._visualize_btn = QPushButton("Visualize")
+        self._visualize_btn.setMinimumHeight(48)
+        self._visualize_btn.clicked.connect(self.visualize_requested.emit)
+        self._visualize_btn.setStyleSheet(
+            "QPushButton { background: #0984e3; color: white; border: none; "
+            "border-radius: 8px; font-size: 14px; font-weight: bold; padding: 12px 24px; }"
+            "QPushButton:hover { background: #0476cc; }"
+            "QPushButton:disabled { background: #b2bec3; color: #f5f6fa; }"
+        )
+        self._visualize_btn.setEnabled(False)
+        self._visualize_btn.setToolTip("Start tracking to enable visualization.")
+        self._visualize_btn.setVisible(False)
+
+        btn_layout.addWidget(self._visualize_btn)
         btn_layout.addWidget(self._pause_btn)
 
         self._stop_btn = QPushButton("Stop")
@@ -120,31 +133,6 @@ class DashboardPage(QWidget):
 
         layout.addLayout(btn_layout)
 
-        quick_layout = QHBoxLayout()
-        recal_btn = QPushButton("Recalibrate")
-        recal_btn.clicked.connect(self.recalibrate_requested.emit)
-        recal_btn.setStyleSheet(
-            "QPushButton { background: #636e72; color: white; border: none; "
-            "padding: 8px 16px; border-radius: 4px; }"
-            "QPushButton:hover { background: #2d3436; }"
-            "QPushButton:disabled { background: #b2bec3; color: #f5f6fa; }"
-        )
-        quick_layout.addWidget(recal_btn)
-
-        self._visualize_btn = QPushButton("Visualize")
-        self._visualize_btn.clicked.connect(self.visualize_requested.emit)
-        self._visualize_btn.setStyleSheet(recal_btn.styleSheet())
-        self._visualize_btn.setEnabled(False)
-        self._visualize_btn.setToolTip("Start tracking to enable visualization.")
-        quick_layout.addWidget(self._visualize_btn)
-
-        change_mode_btn = QPushButton("Change Mode")
-        change_mode_btn.clicked.connect(self.change_mode_requested.emit)
-        change_mode_btn.setStyleSheet(recal_btn.styleSheet())
-        quick_layout.addWidget(change_mode_btn)
-        quick_layout.addStretch()
-
-        layout.addLayout(quick_layout)
         layout.addStretch()
 
     def set_profile_name(self, name: str) -> None:
@@ -180,9 +168,9 @@ class DashboardPage(QWidget):
             self._pause_btn.setVisible(True)
             self._pause_btn.setText("Pause")
             self._stop_btn.setVisible(True)
-            if self._visualize_btn.isVisible():
-                self._visualize_btn.setEnabled(True)
-                self._visualize_btn.setToolTip("Open the live visualizer for this mode.")
+            self._visualize_btn.setVisible(True)
+            self._visualize_btn.setEnabled(True)
+            self._visualize_btn.setToolTip("Open the live visualizer for this mode.")
         elif state == "paused":
             self._status_label.setText("Tracking Paused")
             self._status_label.setStyleSheet(
@@ -199,6 +187,7 @@ class DashboardPage(QWidget):
             self._stop_btn.setVisible(False)
             self._visualize_btn.setEnabled(False)
             self._visualize_btn.setToolTip("Start tracking to enable visualization.")
+            self._visualize_btn.setVisible(False)
 
     def set_visualize_button_visible(self, visible: bool) -> None:
         self._visualize_btn.setVisible(visible)
