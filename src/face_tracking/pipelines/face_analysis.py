@@ -1,6 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import time
-from typing import Iterable, Optional, Tuple
+from typing import Dict, Iterable, Optional, Tuple
 
 from src.face_tracking.providers.face_landmarks import FaceLandmarksProvider
 from src.face_tracking.signals.head_pose import HeadPoseSignalMapper
@@ -17,6 +17,10 @@ class FaceAnalysisResult:
     right_eye_ratio: Optional[float] = None
     facial_transformation_matrix: Optional[object] = None
     depth: Optional[float] = None
+    # Stereo-only extras, populated by StereoFaceAnalysisPipeline. Visualizers and
+    # other observers can read them; the regular gesture/cursor logic ignores them.
+    right_landmarks: Optional[Iterable] = None
+    points_3d: Optional[Dict[int, object]] = None
 
 
 class FaceAnalysisPipeline:

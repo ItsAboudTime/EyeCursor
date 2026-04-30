@@ -45,6 +45,8 @@ class MainWindow(QMainWindow):
         self._is_paused = False
         self._gaze_overlay = None
         self._gaze_signal_proxy = None
+        self._visualizer_window = None
+        self._viz_signal_proxy = None
 
         self.setWindowTitle("EyeCursor")
         self.setMinimumSize(960, 640)
@@ -144,6 +146,7 @@ class MainWindow(QMainWindow):
         self._dashboard_page.change_mode_requested.connect(
             lambda: self._sidebar.setCurrentRow(1)
         )
+        self._dashboard_page.visualize_requested.connect(self._on_visualize_requested)
 
     def _get_active_camera_index(self) -> int:
         if self._active_profile:
@@ -430,6 +433,9 @@ class MainWindow(QMainWindow):
     def _on_tracking_stopped(self) -> None:
         self._is_tracking = False
         self._is_paused = False
+        # Tear down the visualizer BEFORE clearing _tracking_mode so the helper
+        # can null out the callback on the live mode instance.
+        self._teardown_visualizer()
         self._tracking_mode = None
         if self._tracking_thread:
             self._tracking_thread.quit()
@@ -447,6 +453,70 @@ class MainWindow(QMainWindow):
             self._gaze_signal_proxy.deleteLater()
             self._gaze_signal_proxy = None
 
+    @Slot()
+    def _on_visualize_requested(self) -> None:
+        if not self._is_tracking or self._tracking_mode is None:
+            return
+        if self._active_profile is None:
+            return
+
+        mode_id = getattr(self._tracking_mode, "id", None)
+        if mode_id == "balloon_ride":
+            return
+
+        if self._visualizer_window is not None:
+            self._visualizer_window.raise_()
+            self._visualizer_window.activateWindow()
+            return
+
+        from src.ui.overlays.visualization_signal_proxy import VisualizationSignalProxy
+        from src.ui.visualizer.visualizer_window import VisualizerWindow
+
+        try:
+            mode_cls = self._mode_registry.get(mode_id)
+            display_name = mode_cls.display_name
+        except (KeyError, AttributeError):
+            display_name = mode_id or "Unknown"
+
+        self._viz_signal_proxy = VisualizationSignalProxy()
+        self._visualizer_window = VisualizerWindow(
+            mode_id=mode_id,
+            mode_display_name=display_name,
+            parent=self,
+        )
+        self._viz_signal_proxy.frame_ready.connect(
+            self._visualizer_window.update_payload
+        )
+        self._visualizer_window.closed.connect(self._on_visualizer_closed)
+
+        # Attaching the callback enables the throttled emit in the mode loop. Until the
+        # window is opened, the mode skips this work entirely (callback is None).
+        self._tracking_mode.visualization_callback = (
+            self._viz_signal_proxy.frame_ready.emit
+        )
+        self._visualizer_window.show()
+        self._visualizer_window.raise_()
+        self._visualizer_window.activateWindow()
+
+    @Slot()
+    def _on_visualizer_closed(self) -> None:
+        self._teardown_visualizer()
+
+    def _teardown_visualizer(self) -> None:
+        if self._tracking_mode is not None:
+            self._tracking_mode.visualization_callback = None
+        if self._visualizer_window is not None:
+            try:
+                self._visualizer_window.closed.disconnect(self._on_visualizer_closed)
+            except (TypeError, RuntimeError):
+                pass
+            self._visualizer_window.hide()
+            self._visualizer_window.deleteLater()
+            self._visualizer_window = None
+        if self._viz_signal_proxy is not None:
+            self._viz_signal_proxy.deleteLater()
+            self._viz_signal_proxy = None
+
     def keyPressEvent(self, event) -> None:
         if event.key() in (Qt.Key.Key_Q, Qt.Key.Key_Escape):
             if self._is_tracking:
@@ -460,6 +530,7 @@ class MainWindow(QMainWindow):
         if self._tracking_thread:
             self._tracking_thread.quit()
             self._tracking_thread.wait(5000)
+        self._teardown_visualizer()
         self._teardown_gaze_overlay()
         self._cameras_page.stop_previews()
         self._camera_manager.release_all()

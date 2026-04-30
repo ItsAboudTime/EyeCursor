@@ -475,6 +475,8 @@ class StereoFaceAnalysisPipeline:
             right_eye_ratio=right_eye_ratio,
             facial_transformation_matrix=left_observation.facial_transformation_matrix,
             depth=depth,
+            right_landmarks=right_observation.landmarks,
+            points_3d=points_3d,
         )
 
     def calibrate_to_center(self, yaw: float, pitch: float) -> None:

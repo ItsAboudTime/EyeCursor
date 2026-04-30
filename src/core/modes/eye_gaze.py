@@ -1,11 +1,14 @@
 import pathlib
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
 
 from src.core.modes.base import TrackingMode
+
+
+_VIZ_MIN_INTERVAL = 1.0 / 15.0
 
 
 class EyeGazeMode(TrackingMode):
@@ -21,6 +24,8 @@ class EyeGazeMode(TrackingMode):
     def __init__(self) -> None:
         self._should_stop = False
         self._paused = False
+        self.visualization_callback: Optional[Callable[[dict], None]] = None
+        self._last_viz_emit = 0.0
 
     def validate_requirements(
         self,
@@ -83,6 +88,8 @@ class EyeGazeMode(TrackingMode):
                 "Try selecting another camera or closing other apps that may be using it."
             )
 
+        screen_bounds = controller.cursor_bounds
+
         try:
             while not self._should_stop:
                 if self._paused:
@@ -95,10 +102,63 @@ class EyeGazeMode(TrackingMode):
 
                 result = inference.infer_from_frame(frame)
                 if result is not None:
-                    pitch_rad, yaw_rad, _, _ = result
-                    controller.update_cursor(yaw_rad, pitch_rad)
+                    pitch_rad, yaw_rad, face_patch_bgr, _ = result
+                    target = controller.target_from_gaze(
+                        yaw_rad=yaw_rad, pitch_rad=pitch_rad
+                    )
+                    if target is not None and controller.cursor is not None:
+                        controller.cursor.step_towards(*target)
+                    self._maybe_emit_visualization(
+                        frame_bgr=frame,
+                        pitch_rad=pitch_rad,
+                        yaw_rad=yaw_rad,
+                        face_patch_bgr=face_patch_bgr,
+                        target=target,
+                        screen_bounds=screen_bounds,
+                        inference=inference,
+                    )
         finally:
             camera.release()
+
+    def _maybe_emit_visualization(
+        self,
+        frame_bgr,
+        pitch_rad: float,
+        yaw_rad: float,
+        face_patch_bgr,
+        target: Optional[Tuple[int, int]],
+        screen_bounds,
+        inference,
+    ) -> None:
+        callback = self.visualization_callback
+        if callback is None:
+            return
+        now = time.monotonic()
+        if (now - self._last_viz_emit) < _VIZ_MIN_INTERVAL:
+            return
+        self._last_viz_emit = now
+
+        dlib_landmarks = getattr(inference, "last_dlib_landmarks", None)
+        face_box = getattr(inference, "last_face_box", None)
+
+        payload = {
+            "mode_id": self.id,
+            "frame_bgr": frame_bgr.copy(),
+            "frame_width": int(frame_bgr.shape[1]),
+            "frame_height": int(frame_bgr.shape[0]),
+            "pitch_rad": float(pitch_rad),
+            "yaw_rad": float(yaw_rad),
+            "face_patch_bgr": face_patch_bgr.copy() if face_patch_bgr is not None else None,
+            "dlib_landmarks_68": dlib_landmarks.copy() if dlib_landmarks is not None else None,
+            "dlib_face_box": face_box,
+            "target_screen_xy": tuple(target) if target is not None else None,
+            "screen_bounds": tuple(screen_bounds) if screen_bounds is not None else None,
+            "paused": self._paused,
+        }
+        try:
+            callback(payload)
+        except Exception:
+            pass
 
     def stop(self) -> None:
         self._should_stop = True

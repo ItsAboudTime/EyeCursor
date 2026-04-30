@@ -93,6 +93,10 @@ class ETHXGazeInference:
         self.camera_distortion = np.zeros((5, 1), dtype=np.float64)
         self._load_camera_calibration()
 
+        # Stashed for visualizers to read after each infer_from_frame call.
+        self.last_dlib_landmarks: Optional[np.ndarray] = None
+        self.last_face_box: Optional[Tuple[int, int, int, int]] = None
+
     @staticmethod
     def _select_device(name: str) -> torch.device:
         choice = str(name).strip().lower()
@@ -266,10 +270,20 @@ class ETHXGazeInference:
         rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         detected_faces = self.face_detector(rgb, 0)
         if len(detected_faces) == 0:
+            self.last_dlib_landmarks = None
+            self.last_face_box = None
             return None
 
-        shape = self.shape_predictor(frame_bgr, detected_faces[0])
+        face_rect = detected_faces[0]
+        self.last_face_box = (
+            int(face_rect.left()),
+            int(face_rect.top()),
+            int(face_rect.right()),
+            int(face_rect.bottom()),
+        )
+        shape = self.shape_predictor(frame_bgr, face_rect)
         landmarks = self._shape_to_np(shape)
+        self.last_dlib_landmarks = landmarks.copy()
 
         landmarks_sub = landmarks[self.LANDMARK_SUBSET, :].astype(np.float64)
         landmarks_sub = landmarks_sub.reshape(6, 1, 2)
