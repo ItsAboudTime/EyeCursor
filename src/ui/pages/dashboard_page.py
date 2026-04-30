@@ -145,18 +145,26 @@ class DashboardPage(QWidget):
         self._cameras_label.setText(info)
 
     def update_calibration_status(self, statuses: dict) -> None:
-        mapping = {
-            "one_camera_head_pose": "head_pose",
-            "two_camera_head_pose": "head_pose",
-            "eye_gestures": "eye_gestures",
-            "stereo": "stereo",
-            "eye_gaze": "eye_gaze",
+        # Map each badge to the list of mode keys that contribute to it.
+        # A badge is considered calibrated ("Good") if ANY of its contributing
+        # modes is calibrated. This generalises the many-to-one case
+        # (head_pose has two modes) so future additions don't reintroduce the
+        # overwrite bug from a flat mode_key -> badge_key mapping.
+        badge_to_modes = {
+            "head_pose": ["one_camera_head_pose", "two_camera_head_pose"],
+            "eye_gestures": ["eye_gestures"],
+            "stereo": ["stereo"],
+            "eye_gaze": ["eye_gaze"],
         }
-        for mode_id, badge_key in mapping.items():
-            if badge_key in self._calib_badges and mode_id in statuses:
-                label = "Calibrated" if statuses[mode_id] else "Not Calibrated"
-                color_label = "Good" if statuses[mode_id] else "Not Calibrated"
-                self._calib_badges[badge_key].set_label(color_label)
+        for badge_key, mode_ids in badge_to_modes.items():
+            if badge_key not in self._calib_badges:
+                continue
+            present = [m for m in mode_ids if m in statuses]
+            if not present:
+                continue
+            calibrated = any(statuses[m] for m in present)
+            label = "Good" if calibrated else "Not Calibrated"
+            self._calib_badges[badge_key].set_label(label)
 
     def set_tracking_state(self, state: str) -> None:
         if state == "active":
