@@ -4,7 +4,9 @@ A standalone Panda3D demo built to showcase the EyeCursor head/eye-gaze cursor-c
 
 ## Demo
 
-> Screenshot coming soon.
+![Main menu](screenshots/menu.png)
+
+![On the ride](screenshots/gameplay.png)
 
 ## Stack
 
