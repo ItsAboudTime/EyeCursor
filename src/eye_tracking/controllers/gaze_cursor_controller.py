@@ -19,14 +19,14 @@ class GazeCursorController:
         self.cursor_enabled = bool(cursor_enabled)
         self.cursor_yaw_span = float(cursor_yaw_span)
         self.cursor_pitch_span = float(cursor_pitch_span)
-        self.cursor_ema_alpha = float(cursor_ema_alpha)
 
         if self.cursor_yaw_span <= 0.0:
             raise ValueError("cursor_yaw_span must be > 0")
         if self.cursor_pitch_span <= 0.0:
             raise ValueError("cursor_pitch_span must be > 0")
-        if not (0.0 < self.cursor_ema_alpha <= 1.0):
-            raise ValueError("cursor_ema_alpha must be in (0, 1]")
+
+        # Validated by the property setter.
+        self.cursor_ema_alpha = float(cursor_ema_alpha)
 
         self.cursor = None
         self.cursor_bounds: Optional[Tuple[int, int, int, int]] = None
@@ -38,6 +38,17 @@ class GazeCursorController:
         self.norm_bounds: Optional[Tuple[float, float, float, float]] = None
 
         self._init_cursor()
+
+    @property
+    def cursor_ema_alpha(self) -> float:
+        return self._cursor_ema_alpha
+
+    @cursor_ema_alpha.setter
+    def cursor_ema_alpha(self, value: float) -> None:
+        v = float(value)
+        if not (0.0 < v <= 1.0):
+            raise ValueError("cursor_ema_alpha must be in (0, 1]")
+        self._cursor_ema_alpha = v
 
     def _init_cursor(self) -> None:
         if not self.cursor_enabled:

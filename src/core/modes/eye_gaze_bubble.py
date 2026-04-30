@@ -6,6 +6,8 @@ import cv2
 import numpy as np
 
 from src.core.modes.base import TrackingMode
+from src.core.modes.eye_gaze import _apply_gaze_controller_settings
+from src.core.modes.one_camera_head_pose import _apply_cursor_settings
 
 
 _VIZ_MIN_INTERVAL = 1.0 / 15.0
@@ -27,6 +29,8 @@ class EyeGazeBubbleMode(TrackingMode):
         self.gaze_target_callback: Optional[Callable[[int, int], None]] = None
         self.visualization_callback: Optional[Callable[[dict], None]] = None
         self._last_viz_emit = 0.0
+        self._cursor = None
+        self._gaze_controller = None
 
     def validate_requirements(
         self,
@@ -57,6 +61,7 @@ class EyeGazeBubbleMode(TrackingMode):
     ) -> None:
         self._should_stop = False
         self._paused = False
+        settings = settings or {}
 
         from src.eye_tracking.pipelines.eth_xgaze_inference import ETHXGazeInference
         from src.eye_tracking.controllers.gaze_cursor_controller import GazeCursorController
@@ -81,6 +86,11 @@ class EyeGazeBubbleMode(TrackingMode):
             controller.norm_bounds = tuple(calib["norm_bounds"])
         controller.calibration_yaw = calib.get("calibration_yaw", 0.0)
         controller.calibration_pitch = calib.get("calibration_pitch", 0.0)
+
+        self._cursor = cursor
+        self._gaze_controller = controller
+        _apply_cursor_settings(cursor, settings)
+        _apply_gaze_controller_settings(controller, settings)
 
         camera = cv2.VideoCapture(selected_cameras[0])
         if not camera.isOpened():
@@ -118,6 +128,8 @@ class EyeGazeBubbleMode(TrackingMode):
                     )
         finally:
             camera.release()
+            self._cursor = None
+            self._gaze_controller = None
 
     def _maybe_emit_visualization(
         self,
@@ -169,3 +181,7 @@ class EyeGazeBubbleMode(TrackingMode):
 
     def resume(self) -> None:
         self._paused = False
+
+    def update_settings(self, settings: dict) -> None:
+        _apply_cursor_settings(self._cursor, settings)
+        _apply_gaze_controller_settings(self._gaze_controller, settings)

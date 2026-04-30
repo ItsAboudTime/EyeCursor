@@ -1,3 +1,4 @@
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
@@ -11,6 +12,10 @@ from PySide6.QtWidgets import (
 
 
 class SettingsPage(QWidget):
+    # Emitted any time any setting changes. Payload is the full settings dict
+    # (same shape as get_settings()).
+    settings_changed = Signal(dict)
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
@@ -37,20 +42,29 @@ class SettingsPage(QWidget):
         )
         form = QFormLayout(cursor_group)
 
+        # Move speed: 1..10000 px/sec. Floor of 1 lets users pick extremely
+        # slow cursors (precision tasks); ceiling of 10000 well above any
+        # realistic head/gaze tracking rate.
         self._move_speed = QSpinBox()
-        self._move_speed.setRange(50, 2000)
+        self._move_speed.setRange(1, 10000)
         self._move_speed.setValue(200)
         self._move_speed.setSuffix(" px/sec")
         form.addRow("Move speed:", self._move_speed)
 
+        # Frame rate: 1..240 fps. 1 fps lets users debug; 240 fps covers
+        # high-refresh-rate monitors and any reasonable webcam capture rate.
         self._frame_rate = QSpinBox()
-        self._frame_rate.setRange(10, 120)
+        self._frame_rate.setRange(1, 240)
         self._frame_rate.setValue(30)
         self._frame_rate.setSuffix(" fps")
         form.addRow("Frame rate:", self._frame_rate)
 
+        # EMA alpha: 0.001..1.0. The lower bound is the smallest practical
+        # smoothing value that still permits change. 0.0 is excluded because
+        # it freezes the cursor; downstream code asserts (0, 1].
         self._ema_alpha = QDoubleSpinBox()
-        self._ema_alpha.setRange(0.01, 1.0)
+        self._ema_alpha.setRange(0.001, 1.0)
+        self._ema_alpha.setDecimals(3)
         self._ema_alpha.setSingleStep(0.05)
         self._ema_alpha.setValue(0.1)
         form.addRow("Smoothing (EMA alpha):", self._ema_alpha)
@@ -71,8 +85,9 @@ class SettingsPage(QWidget):
         self._scroll_enabled.setStyleSheet(checkbox_style)
         gestures_form.addRow(self._scroll_enabled)
 
+        # Scroll speed: 1..10000 units/sec. Same logic as move speed.
         self._scroll_speed = QSpinBox()
-        self._scroll_speed.setRange(10, 1000)
+        self._scroll_speed.setRange(1, 10000)
         self._scroll_speed.setValue(300)
         self._scroll_speed.setSuffix(" units/sec")
         gestures_form.addRow("Scroll speed:", self._scroll_speed)
@@ -94,6 +109,18 @@ class SettingsPage(QWidget):
         layout.addWidget(about_group)
 
         layout.addStretch()
+
+        # Wire change notifications. Each control emits the full snapshot so
+        # consumers don't need to know which control fired.
+        self._move_speed.valueChanged.connect(self._emit_settings_changed)
+        self._frame_rate.valueChanged.connect(self._emit_settings_changed)
+        self._ema_alpha.valueChanged.connect(self._emit_settings_changed)
+        self._scroll_speed.valueChanged.connect(self._emit_settings_changed)
+        self._click_enabled.stateChanged.connect(self._emit_settings_changed)
+        self._scroll_enabled.stateChanged.connect(self._emit_settings_changed)
+
+    def _emit_settings_changed(self, *_args) -> None:
+        self.settings_changed.emit(self.get_settings())
 
     def get_settings(self) -> dict:
         return {

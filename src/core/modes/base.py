@@ -41,3 +41,14 @@ class TrackingMode(ABC):
     @abstractmethod
     def resume(self) -> None:
         ...
+
+    def update_settings(self, settings: Dict) -> None:
+        """Apply live setting changes to long-lived collaborators.
+
+        The default implementation is a no-op. Concrete modes should override
+        to push the new settings into their cursor / gesture / gaze
+        controllers. Implementations must be safe to call from the GUI
+        thread and tolerate being called before, during, or after the
+        tracking loop is running.
+        """
+        return

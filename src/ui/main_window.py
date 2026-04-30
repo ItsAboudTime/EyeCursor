@@ -41,6 +41,7 @@ class MainWindow(QMainWindow):
         self._active_profile: Optional[ProfileModel] = None
         self._tracking_thread: Optional[QThread] = None
         self._tracking_mode: Optional[TrackingMode] = None
+        self._tracking_worker = None
         self._is_tracking = False
         self._is_paused = False
         self._gaze_overlay = None
@@ -141,6 +142,8 @@ class MainWindow(QMainWindow):
         self._dashboard_page.pause_requested.connect(self._on_pause_tracking)
         self._dashboard_page.stop_requested.connect(self._on_stop_tracking)
         self._dashboard_page.visualize_requested.connect(self._on_visualize_requested)
+
+        self._settings_page.settings_changed.connect(self._on_settings_changed)
 
     def _get_active_camera_index(self) -> int:
         if self._active_profile:
@@ -354,8 +357,17 @@ class MainWindow(QMainWindow):
         from src.cursor import create_cursor
         from src.core.tracking_worker import TrackingWorker
 
+        # Snapshot the current settings so the cursor and (later) the worker
+        # both start with the user's configured values. update_settings()
+        # below keeps everything live.
+        current_settings = self._settings_page.get_settings()
+
         try:
-            cursor = create_cursor()
+            cursor = create_cursor(
+                move_px_per_sec=float(current_settings.get("move_speed", 200)),
+                frame_rate=int(current_settings.get("frame_rate", 30)),
+                scroll_units_per_sec=float(current_settings.get("scroll_speed", 300)),
+            )
         except Exception as e:
             QMessageBox.critical(self, "Cursor Error", f"Failed to initialize cursor: {e}")
             self._dashboard_page.set_tracking_state("stopped")
@@ -382,7 +394,7 @@ class MainWindow(QMainWindow):
             calibrations=self._pending_calibrations,
             cameras=self._pending_cameras,
             cursor=cursor,
-            settings=self._settings_page.get_settings(),
+            settings=current_settings,
         )
 
         self._tracking_thread = QThread()
@@ -419,6 +431,18 @@ class MainWindow(QMainWindow):
                 self._is_paused = True
                 self._dashboard_page.set_tracking_state("paused")
 
+    @Slot(dict)
+    def _on_settings_changed(self, settings: dict) -> None:
+        # Forward settings to the active worker so it can update the running
+        # mode. When idle, the next start picks up the latest snapshot via
+        # SettingsPage.get_settings().
+        if not self._is_tracking:
+            return
+        worker = getattr(self, "_tracking_worker", None)
+        if worker is None:
+            return
+        worker.update_settings(settings)
+
     @Slot()
     def _on_stop_tracking(self) -> None:
         if self._tracking_mode and self._is_tracking:
@@ -435,6 +459,9 @@ class MainWindow(QMainWindow):
             self._tracking_thread.quit()
             self._tracking_thread.wait(5000)
             self._tracking_thread = None
+        # Drop the worker reference so a late settings_changed emit can't
+        # reach a deleted QObject.
+        self._tracking_worker = None
         self._teardown_gaze_overlay()
         self._dashboard_page.set_tracking_state("stopped")
 

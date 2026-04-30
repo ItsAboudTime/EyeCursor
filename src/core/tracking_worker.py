@@ -38,3 +38,28 @@ class TrackingWorker(QObject):
         finally:
             self.status_changed.emit("stopped")
             self.finished.emit()
+
+    @Slot(dict)
+    def update_settings(self, settings: dict) -> None:
+        """Forward live settings updates to the running mode.
+
+        Called from the GUI thread while the mode loop runs on the tracking
+        thread. Modes only mutate simple attributes (floats / ints / bools)
+        on the cursor and gesture controller, which is safe across threads
+        thanks to the GIL making each individual attribute write atomic.
+
+        Safe to call regardless of run state: the mode is responsible for
+        applying the new settings to its long-lived collaborators (cursor,
+        gesture controller, gaze controller). Mode implementations should
+        treat this as best-effort and never raise.
+        """
+        if not isinstance(settings, dict):
+            return
+        # Keep the latest snapshot so a subsequent restart picks up the
+        # current values too.
+        self._settings = dict(settings)
+        try:
+            self._mode.update_settings(self._settings)
+        except Exception as exc:
+            # Never let a settings-update failure kill the tracking loop.
+            print(f"warning: mode.update_settings raised: {exc}")

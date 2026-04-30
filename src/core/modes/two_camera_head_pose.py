@@ -8,7 +8,11 @@ import numpy as np
 
 from src.core.modes._viz_helpers import derive_last_action
 from src.core.modes.base import TrackingMode
-from src.core.modes.one_camera_head_pose import _build_gesture_controller
+from src.core.modes.one_camera_head_pose import (
+    _apply_cursor_settings,
+    _apply_gesture_settings,
+    _build_gesture_controller,
+)
 from src.face_tracking.controllers.gesture import GestureController
 from src.face_tracking.pipelines.stereo_face_analysis import (
     StereoCalibration,
@@ -77,6 +81,8 @@ class TwoCameraHeadPoseMode(TrackingMode):
         self._paused = False
         self.visualization_callback: Optional[Callable[[dict], None]] = None
         self._last_viz_emit = 0.0
+        self._cursor = None
+        self._gesture_controller: Optional[GestureController] = None
 
     def validate_requirements(
         self,
@@ -155,8 +161,10 @@ class TwoCameraHeadPoseMode(TrackingMode):
         screen_h = maxy - miny + 1
 
         gesture_controller = _build_gesture_controller(cursor, gesture_calib)
-        gesture_controller.click_enabled = settings.get("click_enabled", True)
-        gesture_controller.scroll_enabled = settings.get("scroll_enabled", True)
+        self._cursor = cursor
+        self._gesture_controller = gesture_controller
+        _apply_cursor_settings(cursor, settings)
+        _apply_gesture_settings(gesture_controller, settings)
 
         broadcaster = DepthBroadcaster()
         broadcaster.start()
@@ -205,6 +213,8 @@ class TwoCameraHeadPoseMode(TrackingMode):
             left_cam.release()
             right_cam.release()
             pipeline.release()
+            self._cursor = None
+            self._gesture_controller = None
 
     def _maybe_emit_visualization(
         self,
@@ -305,3 +315,7 @@ class TwoCameraHeadPoseMode(TrackingMode):
 
     def resume(self) -> None:
         self._paused = False
+
+    def update_settings(self, settings: dict) -> None:
+        _apply_cursor_settings(self._cursor, settings)
+        _apply_gesture_settings(self._gesture_controller, settings)

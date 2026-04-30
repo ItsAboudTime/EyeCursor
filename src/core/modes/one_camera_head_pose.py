@@ -34,6 +34,35 @@ _VIZ_MIN_INTERVAL = 1.0 / 15.0
 _CURRENT_GESTURE_CALIB_VERSION = 4
 
 
+def _apply_cursor_settings(cursor, settings: dict) -> None:
+    """Push the live-mutable cursor settings (move_speed / frame_rate /
+    scroll_speed) onto the platform cursor instance. Tolerant of missing
+    keys so it can be reused by every mode.
+    """
+    if cursor is None or not settings:
+        return
+    try:
+        if "move_speed" in settings:
+            cursor.move_px_per_sec = float(settings["move_speed"])
+        if "frame_rate" in settings:
+            # Cursor uses int frame_rate.
+            cursor.frame_rate = int(settings["frame_rate"])
+        if "scroll_speed" in settings:
+            cursor.scroll_units_per_sec = float(settings["scroll_speed"])
+    except (TypeError, ValueError) as exc:
+        print(f"warning: bad cursor settings, ignored: {exc}")
+
+
+def _apply_gesture_settings(gesture_controller, settings: dict) -> None:
+    """Push the live-mutable gesture flags onto the gesture controller."""
+    if gesture_controller is None or not settings:
+        return
+    if "click_enabled" in settings:
+        gesture_controller.click_enabled = bool(settings["click_enabled"])
+    if "scroll_enabled" in settings:
+        gesture_controller.scroll_enabled = bool(settings["scroll_enabled"])
+
+
 def _build_gesture_controller(cursor, gesture_calib: Optional[dict]) -> GestureController:
     """Construct the gesture controller, honoring v4 calibration if present."""
     if gesture_calib and gesture_calib.get("version") == _CURRENT_GESTURE_CALIB_VERSION:
@@ -81,6 +110,10 @@ class OneCameraHeadPoseMode(TrackingMode):
         self._paused = False
         self.visualization_callback: Optional[Callable[[dict], None]] = None
         self._last_viz_emit = 0.0
+        # Live-mutable references captured in start() so update_settings()
+        # can push changes into them while the loop is running.
+        self._cursor = None
+        self._gesture_controller: Optional["GestureController"] = None
 
     def validate_requirements(
         self,
@@ -128,8 +161,11 @@ class OneCameraHeadPoseMode(TrackingMode):
         screen_h = maxy - miny + 1
 
         gesture_controller = _build_gesture_controller(cursor, gesture_calib)
-        gesture_controller.click_enabled = settings.get("click_enabled", True)
-        gesture_controller.scroll_enabled = settings.get("scroll_enabled", True)
+        # Apply initial settings to both cursor and gesture controller.
+        self._cursor = cursor
+        self._gesture_controller = gesture_controller
+        _apply_cursor_settings(cursor, settings)
+        _apply_gesture_settings(gesture_controller, settings)
 
         try:
             while not self._should_stop:
@@ -165,6 +201,8 @@ class OneCameraHeadPoseMode(TrackingMode):
             gesture_controller.shutdown()
             camera.release()
             pipeline.release()
+            self._cursor = None
+            self._gesture_controller = None
 
     def _maybe_emit_visualization(
         self,
@@ -259,3 +297,7 @@ class OneCameraHeadPoseMode(TrackingMode):
 
     def resume(self) -> None:
         self._paused = False
+
+    def update_settings(self, settings: dict) -> None:
+        _apply_cursor_settings(self._cursor, settings)
+        _apply_gesture_settings(self._gesture_controller, settings)
