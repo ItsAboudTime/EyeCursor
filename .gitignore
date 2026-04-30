@@ -16,3 +16,5 @@ epoch_24_ckpt.pth.tar
 shape_predictor_68_face_landmarks.dat
 .DS_Store
 docs/*
+game/photos/
+game/config.json

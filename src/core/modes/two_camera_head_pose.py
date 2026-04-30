@@ -1,3 +1,5 @@
+import json
+import socket
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -14,6 +16,42 @@ from src.face_tracking.pipelines.stereo_face_analysis import (
 
 
 _VIZ_MIN_INTERVAL = 1.0 / 15.0
+
+
+class DepthBroadcaster:
+    _MIN_INTERVAL = 1.0 / 30.0  # 30 Hz throttle
+
+    def __init__(self, host: str = "127.0.0.1", port: int = 7345) -> None:
+        self._addr = (host, port)
+        self._sock: Optional[socket.socket] = None
+        self._last_send = 0.0
+
+    def start(self) -> None:
+        try:
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        except OSError:
+            self._sock = None
+
+    def send(self, depth: Optional[float]) -> None:
+        if self._sock is None or depth is None:
+            return
+        now = time.monotonic()
+        if now - self._last_send < self._MIN_INTERVAL:
+            return
+        self._last_send = now
+        try:
+            payload = json.dumps({"depth": float(depth)}).encode("utf-8")
+            self._sock.sendto(payload, self._addr)
+        except OSError:
+            pass
+
+    def stop(self) -> None:
+        if self._sock is not None:
+            try:
+                self._sock.close()
+            except OSError:
+                pass
+            self._sock = None
 
 
 class TwoCameraHeadPoseMode(TrackingMode):
@@ -124,6 +162,9 @@ class TwoCameraHeadPoseMode(TrackingMode):
         gesture_controller.click_enabled = settings.get("click_enabled", True)
         gesture_controller.scroll_enabled = settings.get("scroll_enabled", True)
 
+        broadcaster = DepthBroadcaster()
+        broadcaster.start()
+
         try:
             while not self._should_stop:
                 if self._paused:
@@ -152,6 +193,7 @@ class TwoCameraHeadPoseMode(TrackingMode):
                     pre_blink = gesture_controller.active_blink_side
                     pre_scroll = gesture_controller.active_scroll_gesture
                     gesture_controller.handle_face_analysis(result, now=time.time())
+                    broadcaster.send(result.depth)
                     self._maybe_emit_visualization(
                         frame_left=frame_l,
                         frame_right=frame_r,
@@ -164,6 +206,7 @@ class TwoCameraHeadPoseMode(TrackingMode):
                         virtual_bounds=(minx, miny, maxx, maxy),
                     )
         finally:
+            broadcaster.stop()
             gesture_controller.shutdown()
             left_cam.release()
             right_cam.release()

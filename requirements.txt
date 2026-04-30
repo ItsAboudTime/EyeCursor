@@ -16,3 +16,4 @@ pyobjc-framework-Quartz==11.1; sys_platform == "darwin"
 # Linux-only
 pynput; sys_platform == "linux"
 keyboard; sys_platform == "linux"
+panda3d>=1.10.14
