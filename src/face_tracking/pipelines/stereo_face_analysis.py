@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+import time
 from typing import Dict, Iterable, Optional, Sequence, Tuple
 
 import cv2
@@ -287,6 +288,7 @@ class StereoFaceAnalysisPipeline:
         ema_alpha: float = 0.25,
         wink_closed_threshold: float = 0.3,
         wink_open_threshold: float = 0.3,
+        wink_freeze_seconds: float = 1.0,
         face_model_path: Optional[str] = None,
     ) -> None:
         self._left_provider = FaceLandmarksProvider(face_model_path=face_model_path)
@@ -337,6 +339,11 @@ class StereoFaceAnalysisPipeline:
         self._last_screen_position: Optional[Tuple[int, int]] = None
         self._last_angles: Optional[Tuple[float, float]] = None
         self._last_depth: Optional[float] = None
+        self._wink_freeze_seconds = float(wink_freeze_seconds)
+        if self._wink_freeze_seconds < 0.0:
+            raise ValueError("wink_freeze_seconds must be >= 0")
+        self._wink_started_at: Optional[float] = None
+        self._last_wink_direction: Optional[str] = None
 
     def analyze(
         self,
@@ -424,14 +431,36 @@ class StereoFaceAnalysisPipeline:
             open_threshold=self._wink_open_threshold,
         )
 
+        if wink_direction is None:
+            self._wink_started_at = None
+            self._last_wink_direction = None
+        else:
+            now = time.monotonic()
+            if self._last_wink_direction != wink_direction:
+                self._wink_started_at = now
+                self._last_wink_direction = wink_direction
+
         if (
             wink_direction is not None
             and self._last_screen_position is not None
             and self._last_angles is not None
         ):
-            screen_position = self._last_screen_position
-            angles = self._last_angles
-            depth = self._last_depth
+            should_freeze = True
+            if self._wink_started_at is not None and self._wink_freeze_seconds > 0.0:
+                elapsed = time.monotonic() - self._wink_started_at
+                if elapsed >= self._wink_freeze_seconds:
+                    should_freeze = False
+            elif self._wink_freeze_seconds == 0.0:
+                should_freeze = False
+
+            if should_freeze:
+                screen_position = self._last_screen_position
+                angles = self._last_angles
+                depth = self._last_depth
+            else:
+                self._last_screen_position = screen_position
+                self._last_angles = angles
+                self._last_depth = depth
         else:
             self._last_screen_position = screen_position
             self._last_angles = angles

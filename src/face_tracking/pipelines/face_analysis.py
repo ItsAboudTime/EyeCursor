@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import time
 from typing import Iterable, Optional, Tuple
 
 from src.face_tracking.providers.face_landmarks import FaceLandmarksProvider
@@ -26,6 +27,7 @@ class FaceAnalysisPipeline:
         yaw_span: float = 20.0,
         pitch_span: float = 10.0,
         ema_alpha: float = 0.25,
+        wink_freeze_seconds: float = 1.0,
         face_model_path: Optional[str] = None,
     ) -> None:
         self._landmarks_provider = FaceLandmarksProvider(face_model_path=face_model_path)
@@ -36,6 +38,11 @@ class FaceAnalysisPipeline:
         )
         self._last_screen_position: Optional[Tuple[int, int]] = None
         self._last_angles: Optional[Tuple[float, float]] = None
+        self._wink_freeze_seconds = float(wink_freeze_seconds)
+        if self._wink_freeze_seconds < 0.0:
+            raise ValueError("wink_freeze_seconds must be >= 0")
+        self._wink_started_at: Optional[float] = None
+        self._last_wink_direction: Optional[str] = None
 
     def analyze(
         self,
@@ -70,9 +77,30 @@ class FaceAnalysisPipeline:
         left_eye_ratio, right_eye_ratio = get_eye_aspect_ratios(landmarks)
         wink_direction = detect_wink_direction(landmarks)
 
+        if wink_direction is None:
+            self._wink_started_at = None
+            self._last_wink_direction = None
+        else:
+            now = time.monotonic()
+            if self._last_wink_direction != wink_direction:
+                self._wink_started_at = now
+                self._last_wink_direction = wink_direction
+
         if wink_direction is not None and self._last_screen_position is not None and self._last_angles is not None:
-            screen_position = self._last_screen_position
-            angles = self._last_angles
+            should_freeze = True
+            if self._wink_started_at is not None and self._wink_freeze_seconds > 0.0:
+                elapsed = time.monotonic() - self._wink_started_at
+                if elapsed >= self._wink_freeze_seconds:
+                    should_freeze = False
+            elif self._wink_freeze_seconds == 0.0:
+                should_freeze = False
+
+            if should_freeze:
+                screen_position = self._last_screen_position
+                angles = self._last_angles
+            else:
+                self._last_screen_position = screen_position
+                self._last_angles = angles
         else:
             self._last_screen_position = screen_position
             self._last_angles = angles
