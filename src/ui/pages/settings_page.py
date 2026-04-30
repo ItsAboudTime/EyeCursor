@@ -61,12 +61,12 @@ class SettingsPage(QWidget):
         gestures_group.setStyleSheet(cursor_group.styleSheet())
         gestures_form = QFormLayout(gestures_group)
 
-        self._click_enabled = QCheckBox("Enable click gestures (wink to click)")
+        self._click_enabled = QCheckBox("Enable click gestures (smirk to click)")
         self._click_enabled.setChecked(True)
         self._click_enabled.setStyleSheet(checkbox_style)
         gestures_form.addRow(self._click_enabled)
 
-        self._scroll_enabled = QCheckBox("Enable scroll gestures (squint to scroll)")
+        self._scroll_enabled = QCheckBox("Enable scroll gestures (cheek puff to scroll)")
         self._scroll_enabled.setChecked(True)
         self._scroll_enabled.setStyleSheet(checkbox_style)
         gestures_form.addRow(self._scroll_enabled)

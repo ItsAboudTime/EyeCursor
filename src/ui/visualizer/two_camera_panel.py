@@ -126,10 +126,22 @@ class TwoCameraPanel(QWidget):
             badges.addWidget(badge)
         badges.addStretch(1)
         mid_col.addLayout(badges)
-        self._wink_label = QLabel("Wink: none")
-        self._click_state_label = QLabel("Click state: idle")
+        self._last_click_label = QLabel("Last click: --")
+        self._smirk_left_label = QLabel("Smirk L: --")
+        self._smirk_right_label = QLabel("Smirk R: --")
+        self._cheek_puff_label = QLabel("Cheek puff: --")
+        self._tuck_label = QLabel("Tuck: --")
+        self._click_state_label = QLabel("Click state: armed")
         self._scroll_state_label = QLabel("Scroll state: idle")
-        for lbl in (self._wink_label, self._click_state_label, self._scroll_state_label):
+        for lbl in (
+            self._last_click_label,
+            self._smirk_left_label,
+            self._smirk_right_label,
+            self._cheek_puff_label,
+            self._tuck_label,
+            self._click_state_label,
+            self._scroll_state_label,
+        ):
             lbl.setStyleSheet("color: #dfe6e9; font-size: 12px;")
             mid_col.addWidget(lbl)
         mid_col.addStretch(1)
@@ -242,11 +254,35 @@ class TwoCameraPanel(QWidget):
             " color: white; font-size: 11px;"
         )
 
-        self._wink_label.setText(f"Wink: {payload.get('wink_direction') or 'none'}")
-        active_blink = gesture_state.get("active_blink_side")
-        self._click_state_label.setText(
-            f"Click state: {active_blink + ' button held' if active_blink else 'idle'}"
+        last_click = gesture_state.get("last_click_side")
+        self._last_click_label.setText(f"Last click: {last_click if last_click else '--'}")
+        smirk_l = gesture_state.get("smirk_left_activation")
+        smirk_r = gesture_state.get("smirk_right_activation")
+        cheek_puff = gesture_state.get("cheek_puff_value")
+        self._smirk_left_label.setText(
+            f"Smirk L: {smirk_l:.3f}" if smirk_l is not None else "Smirk L: --"
         )
+        self._smirk_right_label.setText(
+            f"Smirk R: {smirk_r:.3f}" if smirk_r is not None else "Smirk R: --"
+        )
+        self._cheek_puff_label.setText(
+            f"Cheek puff: {cheek_puff:.3f}" if cheek_puff is not None else "Cheek puff: --"
+        )
+        tuck = gesture_state.get("tuck_value")
+        self._tuck_label.setText(
+            f"Tuck: {tuck:.3f}" if tuck is not None else "Tuck: --"
+        )
+        is_held = bool(gesture_state.get("is_held", False))
+        held_button = gesture_state.get("held_button")
+        click_armed = gesture_state.get("click_armed", True)
+        if is_held:
+            self._click_state_label.setText(
+                f"Click state: holding {held_button}" if held_button else "Click state: holding"
+            )
+        elif click_armed:
+            self._click_state_label.setText("Click state: armed")
+        else:
+            self._click_state_label.setText("Click state: waiting for relax")
         active_scroll = gesture_state.get("active_scroll_gesture")
         self._scroll_state_label.setText(
             f"Scroll state: {active_scroll if active_scroll else 'idle'}"

@@ -2,25 +2,26 @@ from typing import Optional
 
 
 def derive_last_action(
-    pre_blink: Optional[str],
-    post_blink: Optional[str],
+    last_click_side: Optional[str],
     pre_scroll: Optional[str],
     post_scroll: Optional[str],
 ) -> Optional[str]:
-    """Diff gesture-controller state across one frame to surface the most recent action.
+    """Surface the most recent gesture action for the visualizer.
 
-    Returns one of: 'left_click_down', 'left_click_up', 'right_click_down',
-    'right_click_up', 'scroll_up', 'scroll_down', or None.
+    Returns one of: 'left_click_down', 'right_click_down',
+    'scroll_up', 'scroll_down', or None.
+
+    ``last_click_side`` is the controller's one-frame click indicator
+    (``GestureController._last_click_side``); when set, a click just fired.
+    Scroll transitions are reported once per state change.
     """
-    if pre_blink != post_blink:
-        side = post_blink if post_blink else pre_blink
-        if side == "left":
-            return "left_click_down" if post_blink == "left" else "left_click_up"
-        if side == "right":
-            return "right_click_down" if post_blink == "right" else "right_click_up"
+    if last_click_side == "left":
+        return "left_click_down"
+    if last_click_side == "right":
+        return "right_click_down"
     if pre_scroll != post_scroll and post_scroll is not None:
-        if post_scroll == "both_open":
+        if post_scroll == "scroll_up":
             return "scroll_up"
-        if post_scroll == "both_squint":
+        if post_scroll == "scroll_down":
             return "scroll_down"
     return None

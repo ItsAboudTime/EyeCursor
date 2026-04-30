@@ -61,7 +61,7 @@ class DashboardPage(QWidget):
         self._calib_badges = {}
         calib_items = [
             ("head_pose", "Head Pose"),
-            ("eye_gestures", "Eye Gestures"),
+            ("eye_gestures", "Facial Gestures"),
             ("stereo", "Stereo"),
             ("eye_gaze", "Eye Gaze"),
         ]

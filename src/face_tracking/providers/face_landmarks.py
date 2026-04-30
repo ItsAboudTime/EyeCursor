@@ -13,6 +13,7 @@ import numpy as np
 class FaceLandmarksObservation:
     landmarks: Iterable
     facial_transformation_matrix: Optional[list[list[float]]]
+    blendshapes: Optional[list] = None
 
 
 class FaceLandmarksProvider:
@@ -72,6 +73,7 @@ class FaceLandmarksProvider:
             base_options=mp_tasks_python.BaseOptions(model_asset_path=str(model_path)),
             running_mode=mp_vision.RunningMode.VIDEO,
             output_facial_transformation_matrixes=True,
+            output_face_blendshapes=True,
             num_faces=1,
             min_face_detection_confidence=0.5,
             min_face_presence_confidence=0.5,
@@ -115,9 +117,13 @@ class FaceLandmarksProvider:
         if not result.face_landmarks:
             return None
 
+        blendshapes_lists = getattr(result, "face_blendshapes", None)
+        primary_blendshapes = blendshapes_lists[0] if blendshapes_lists else None
+
         return FaceLandmarksObservation(
             landmarks=result.face_landmarks[0],
             facial_transformation_matrix=self._extract_primary_facial_matrix(result),
+            blendshapes=primary_blendshapes,
         )
 
     def get_primary_face_landmarks(self, rgb_image):

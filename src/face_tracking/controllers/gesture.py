@@ -1,34 +1,118 @@
-from typing import Optional
+from typing import Dict, Optional, Tuple
+
+from src.face_tracking.controllers.blendshape_gesture_constants import (
+    CHEEK_PUFF_DOWN_HIGH,
+    CHEEK_PUFF_DOWN_LOW,
+    CHEEK_PUFF_RELEASE,
+    CHEEK_PUFF_UP_HIGH,
+    CLICK_HOLD_UNFREEZE_SEC,
+    SCROLL_INTENT_DELAY_SEC,
+    SCROLL_MAX_UNITS_PER_SEC,
+    SCROLL_MIN_TICK_INTERVAL_SEC,
+    SCROLL_MIN_UNITS_PER_SEC,
+    SCROLL_TICK_DELTA,
+    SMIRK_RELAX_DIFF,
+    SMIRK_TRIGGER_DIFF,
+    TUCK_RELEASE,
+    TUCK_TRIGGER_HIGH,
+    TUCK_TRIGGER_LOW,
+)
+from src.face_tracking.signals.blendshapes import (
+    compute_smirk_activations,
+    puff_value,
+    tuck_value,
+)
+
+
+def _lerp(value: float, in_low: float, in_high: float, out_low: float, out_high: float) -> float:
+    if in_high <= in_low:
+        return out_low
+    ratio = (value - in_low) / (in_high - in_low)
+    if ratio < 0.0:
+        ratio = 0.0
+    elif ratio > 1.0:
+        ratio = 1.0
+    return out_low + ratio * (out_high - out_low)
 
 
 class GestureController:
-    """Maps face signals to cursor movement and wink-based click actions."""
+    """Maps face signals to cursor movement, click-and-hold actions, and lip-driven scrolls.
+
+    Click-and-hold (drawing): a smirk presses the corresponding mouse button DOWN
+    immediately. The cursor is frozen for the first ``click_hold_unfreeze_sec``
+    of the held smirk so the press lands on a stable target. After that, the
+    cursor resumes moving while the button stays held -- this lets the user
+    drag/draw. Releasing the smirk (diff drops below ``smirk_relax_diff``)
+    releases the button. A brief smirk produces a press+release sequence,
+    which apps treat as a single click.
+
+    Cursor freeze: still applied during the first ``click_hold_unfreeze_sec``
+    of any smirk (smirks deform mouth landmarks slightly, leaking into the
+    head-pose estimate). After that window the freeze lifts even while the
+    button stays held.
+
+    Scrolls -- two distinct lip gestures:
+      - Cheek puff (mouthPucker proxy) -> scroll DOWN, speed lerps from
+        cheek_puff_down_low to cheek_puff_down_high.
+      - Lip tuck-in (max of mouthRoll/mouthPress) -> scroll UP, speed lerps
+        from tuck_trigger_low to tuck_trigger_high.
+    Each has its own 200 ms intent buffer to filter accidental activations.
+
+    Asymmetric faces: ``smirk_baseline_left`` / ``smirk_baseline_right`` and
+    ``tuck_baseline`` capture the user's natural at-rest activations from
+    calibration. The runtime subtracts these so an asymmetric resting face
+    reads as zero.
+    """
 
     def __init__(
         self,
         cursor,
-        hold_trigger_seconds: float = 1.0,
-        release_missed_frames: int = 5,
-        wink_trigger_seconds: float = 0.1,
-        both_eyes_open_threshold: float = 0.7,
-        both_eyes_squint_threshold: float = 0.3,
-        scroll_trigger_seconds: float = 1.0,
-        scroll_delta: int = 120,
+        smirk_trigger_diff: float = SMIRK_TRIGGER_DIFF,
+        smirk_relax_diff: float = SMIRK_RELAX_DIFF,
+        smirk_baseline_left: float = 0.0,
+        smirk_baseline_right: float = 0.0,
+        click_hold_unfreeze_sec: float = CLICK_HOLD_UNFREEZE_SEC,
+        cheek_puff_release: float = CHEEK_PUFF_RELEASE,
+        cheek_puff_down_low: float = CHEEK_PUFF_DOWN_LOW,
+        cheek_puff_down_high: float = CHEEK_PUFF_DOWN_HIGH,
+        cheek_puff_up_high: float = CHEEK_PUFF_UP_HIGH,
+        tuck_release: float = TUCK_RELEASE,
+        tuck_trigger_low: float = TUCK_TRIGGER_LOW,
+        tuck_trigger_high: float = TUCK_TRIGGER_HIGH,
+        tuck_baseline: float = 0.0,
+        scroll_intent_delay_sec: float = SCROLL_INTENT_DELAY_SEC,
+        scroll_min_units_per_sec: float = SCROLL_MIN_UNITS_PER_SEC,
+        scroll_max_units_per_sec: float = SCROLL_MAX_UNITS_PER_SEC,
+        scroll_tick_delta: int = SCROLL_TICK_DELTA,
+        scroll_min_tick_interval_sec: float = SCROLL_MIN_TICK_INTERVAL_SEC,
     ) -> None:
-        if hold_trigger_seconds <= 0.0:
-            raise ValueError("hold_trigger_seconds must be > 0")
-        if release_missed_frames < 1:
-            raise ValueError("release_missed_frames must be >= 1")
-        if wink_trigger_seconds <= 0.0:
-            raise ValueError("wink_trigger_seconds must be > 0")
-        if both_eyes_squint_threshold < 0.0:
-            raise ValueError("both_eyes_squint_threshold must be >= 0")
-        if both_eyes_open_threshold <= both_eyes_squint_threshold:
-            raise ValueError("both_eyes_open_threshold must be > both_eyes_squint_threshold")
-        if scroll_trigger_seconds <= 0.0:
-            raise ValueError("scroll_trigger_seconds must be > 0")
-        if scroll_delta <= 0:
-            raise ValueError("scroll_delta must be > 0")
+        if smirk_trigger_diff <= 0.0:
+            raise ValueError("smirk_trigger_diff must be > 0")
+        if smirk_relax_diff < 0.0 or smirk_relax_diff >= smirk_trigger_diff:
+            raise ValueError("smirk_relax_diff must be in [0, smirk_trigger_diff)")
+        if smirk_baseline_left < 0.0 or smirk_baseline_right < 0.0:
+            raise ValueError("smirk baselines must be >= 0")
+        if click_hold_unfreeze_sec < 0.0:
+            raise ValueError("click_hold_unfreeze_sec must be >= 0")
+        if not (0.0 <= cheek_puff_release < cheek_puff_down_low < cheek_puff_down_high <= cheek_puff_up_high):
+            raise ValueError(
+                "cheek_puff thresholds must satisfy: "
+                "0 <= release < down_low < down_high <= up_high"
+            )
+        if not (0.0 <= tuck_release < tuck_trigger_low < tuck_trigger_high):
+            raise ValueError(
+                "tuck thresholds must satisfy: 0 <= release < trigger_low < trigger_high"
+            )
+        if tuck_baseline < 0.0:
+            raise ValueError("tuck_baseline must be >= 0")
+        if scroll_intent_delay_sec < 0.0:
+            raise ValueError("scroll_intent_delay_sec must be >= 0")
+        if scroll_min_units_per_sec <= 0.0 or scroll_max_units_per_sec < scroll_min_units_per_sec:
+            raise ValueError("scroll speed bounds invalid")
+        if scroll_tick_delta <= 0:
+            raise ValueError("scroll_tick_delta must be > 0")
+        if scroll_min_tick_interval_sec < 0.0:
+            raise ValueError("scroll_min_tick_interval_sec must be >= 0")
 
         self.cursor = cursor
         minx, miny, maxx, maxy = self.cursor.get_virtual_bounds()
@@ -37,217 +121,243 @@ class GestureController:
         self.maxx = maxx
         self.maxy = maxy
 
-        self.hold_trigger_seconds = float(hold_trigger_seconds)
-        self.release_missed_frames = int(release_missed_frames)
-        self.wink_trigger_seconds = float(wink_trigger_seconds)
-        self.both_eyes_open_threshold = float(both_eyes_open_threshold)
-        self.both_eyes_squint_threshold = float(both_eyes_squint_threshold)
-        self.scroll_trigger_seconds = float(scroll_trigger_seconds)
-        self.scroll_delta = int(scroll_delta)
-
-        self.left_is_down = False
-        self.right_is_down = False
-        self.active_blink_side: Optional[str] = None
-        self.blink_started_at = 0.0
-        self.hold_mode = False
-        self.missed_same_side_frames = 0
-        self.pending_wink_side: Optional[str] = None
-        self.pending_wink_started_at = 0.0
-        self.confirmed_wink_side: Optional[str] = None
+        self.smirk_trigger_diff = float(smirk_trigger_diff)
+        self.smirk_relax_diff = float(smirk_relax_diff)
+        self.smirk_baseline_left = float(smirk_baseline_left)
+        self.smirk_baseline_right = float(smirk_baseline_right)
+        self.click_hold_unfreeze_sec = float(click_hold_unfreeze_sec)
+        self.cheek_puff_release = float(cheek_puff_release)
+        self.cheek_puff_down_low = float(cheek_puff_down_low)
+        self.cheek_puff_down_high = float(cheek_puff_down_high)
+        self.cheek_puff_up_high = float(cheek_puff_up_high)
+        self.tuck_release = float(tuck_release)
+        self.tuck_trigger_low = float(tuck_trigger_low)
+        self.tuck_trigger_high = float(tuck_trigger_high)
+        self.tuck_baseline = float(tuck_baseline)
+        self.scroll_intent_delay_sec = float(scroll_intent_delay_sec)
+        self.scroll_min_units_per_sec = float(scroll_min_units_per_sec)
+        self.scroll_max_units_per_sec = float(scroll_max_units_per_sec)
+        self.scroll_tick_delta = int(scroll_tick_delta)
+        self.scroll_min_tick_interval_sec = float(scroll_min_tick_interval_sec)
 
         self.click_enabled = True
         self.scroll_enabled = True
-        self.active_scroll_gesture: Optional[str] = None
-        self.scroll_gesture_started_at = 0.0
-        self.last_scroll_at = 0.0
 
-    def _resolve_scroll_gesture(self, left_eye_ratio: Optional[float], right_eye_ratio: Optional[float]) -> Optional[str]:
-        if left_eye_ratio is None or right_eye_ratio is None:
-            return None
-        if (
-            left_eye_ratio >= self.both_eyes_open_threshold
-            and right_eye_ratio >= self.both_eyes_open_threshold
-        ):
-            return "both_open"
-        if (
-            left_eye_ratio <= self.both_eyes_squint_threshold
-            and right_eye_ratio <= self.both_eyes_squint_threshold
-        ):
-            return "both_squint"
-        return None
+        # Click / hold state
+        self._click_armed: bool = True
+        self._held_button: Optional[str] = None      # 'left' | 'right' | None
+        self._held_started_at: float = 0.0
+        self._last_click_side: Optional[str] = None  # one-frame visualizer flash
+        self._last_click_consumed: bool = False
+        self._smirk_active: bool = False
 
-    def _handle_scroll_gesture(self, face_analysis, now: float) -> None:
-        if not self.scroll_enabled:
-            return
-        gesture = self._resolve_scroll_gesture(
-            left_eye_ratio=face_analysis.left_eye_ratio,
-            right_eye_ratio=face_analysis.right_eye_ratio,
-        )
+        # Scroll state
+        self._puff_intent_started_at: Optional[float] = None
+        self._tuck_intent_started_at: Optional[float] = None
+        self._scroll_last_tick_at: float = 0.0
+        self.active_scroll_gesture: Optional[str] = None  # 'scroll_up' | 'scroll_down' | None
 
-        if gesture != self.active_scroll_gesture:
-            self.active_scroll_gesture = gesture
-            self.scroll_gesture_started_at = now
-            self.last_scroll_at = 0.0
-            return
+    # ---------------------------------------------------------------- helpers
 
-        if gesture is None:
-            return
+    def _adjusted_smirk(self, blendshapes: Dict[str, float]) -> Tuple[float, float]:
+        raw_left, raw_right = compute_smirk_activations(blendshapes)
+        adj_left = raw_left - self.smirk_baseline_left
+        adj_right = raw_right - self.smirk_baseline_right
+        if adj_left < 0.0:
+            adj_left = 0.0
+        if adj_right < 0.0:
+            adj_right = 0.0
+        return adj_left, adj_right
 
-        if (now - self.scroll_gesture_started_at) < self.scroll_trigger_seconds:
-            return
-
-        scroll_units_per_sec = float(getattr(self.cursor, "scroll_units_per_sec", 300.0))
-        min_repeat_interval = abs(self.scroll_delta) / max(1e-6, scroll_units_per_sec)
-        if self.last_scroll_at > 0.0 and (now - self.last_scroll_at) < min_repeat_interval:
-            return
-
-        if gesture == "both_open":
-            self.cursor.scroll_with_speed(-self.scroll_delta)
-        elif gesture == "both_squint":
-            self.cursor.scroll_with_speed(self.scroll_delta)
-
-        self.last_scroll_at = now
-
-    @staticmethod
-    def _wink_to_button(wink_side: Optional[str]) -> Optional[str]:
-        # Left wink maps to right button, right wink maps to left button.
-        if wink_side == "left":
-            return "right"
-        if wink_side == "right":
-            return "left"
-        return None
-
-    def _release_active_button(self) -> list[str]:
-        actions: list[str] = []
-        if self.active_blink_side == "left" and self.left_is_down:
-            actions.append("left_up")
-            self.left_is_down = False
-        elif self.active_blink_side == "right" and self.right_is_down:
-            actions.append("right_up")
-            self.right_is_down = False
-        return actions
-
-    def _apply_mouse_actions(self, actions: list[str]) -> None:
-        for action in actions:
-            if action == "left_down":
-                self.cursor.left_down()
-            elif action == "left_up":
-                self.cursor.left_up()
-            elif action == "right_down":
-                self.cursor.right_down()
-            elif action == "right_up":
-                self.cursor.right_up()
-
-    def _press_button(self, button: str) -> list[str]:
-        actions: list[str] = []
-        if button == "left" and not self.left_is_down:
-            actions.append("left_down")
-            self.left_is_down = True
-        elif button == "right" and not self.right_is_down:
-            actions.append("right_down")
-            self.right_is_down = True
-        return actions
-
-    def _intentional_wink(self, wink_side: Optional[str], now: float) -> Optional[str]:
-        if wink_side is None:
-            self.pending_wink_side = None
-            self.pending_wink_started_at = 0.0
-            self.confirmed_wink_side = None
-            return None
-
-        if self.confirmed_wink_side == wink_side:
-            return wink_side
-
-        if self.pending_wink_side != wink_side:
-            self.pending_wink_side = wink_side
-            self.pending_wink_started_at = now
-            self.confirmed_wink_side = None
-            return None
-
-        if (now - self.pending_wink_started_at) >= self.wink_trigger_seconds:
-            self.confirmed_wink_side = wink_side
-            return wink_side
-
-        return None
-
-    def update(self, wink_side: Optional[str], now: float) -> list[str]:
-        actions: list[str] = []
-        desired_button = self._wink_to_button(wink_side)
-
-        if self.active_blink_side is None:
-            if desired_button is not None:
-                actions.extend(self._press_button(desired_button))
-                self.active_blink_side = desired_button
-                self.blink_started_at = now
-                self.hold_mode = False
-                self.missed_same_side_frames = 0
-            return actions
-
-        if desired_button == self.active_blink_side:
-            self.missed_same_side_frames = 0
-            if not self.hold_mode and (now - self.blink_started_at) >= self.hold_trigger_seconds:
-                self.hold_mode = True
-            return actions
-
-        if self.hold_mode:
-            self.missed_same_side_frames += 1
-            should_release = self.missed_same_side_frames >= self.release_missed_frames
+    def _press_held_button(self, side: str, now: float) -> None:
+        if side == "left":
+            self.cursor.left_down()
+        elif side == "right":
+            self.cursor.right_down()
         else:
-            should_release = True
+            return
+        self._held_button = side
+        self._held_started_at = now
+        self._last_click_side = side
+        self._last_click_consumed = False
 
-        if should_release:
-            actions.extend(self._release_active_button())
+    def _release_held_button(self) -> None:
+        if self._held_button == "left":
+            self.cursor.left_up()
+        elif self._held_button == "right":
+            self.cursor.right_up()
+        self._held_button = None
+        self._held_started_at = 0.0
 
-            self.active_blink_side = None
-            self.blink_started_at = 0.0
-            self.hold_mode = False
-            self.missed_same_side_frames = 0
+    # ---------------------------------------------------------------- click
 
-            # If the latest frame indicates the opposite wink,
-            # start that click immediately after releasing.
-            if desired_button is not None:
-                actions.extend(self._press_button(desired_button))
-                self.active_blink_side = desired_button
-                self.blink_started_at = now
+    def _handle_smirk_click_or_hold(self, smirk_diff: float, now: float) -> None:
+        # Re-arm only when the previous click has already fully released and
+        # the user has relaxed.
+        if self._held_button is None and not self._click_armed:
+            if abs(smirk_diff) < self.smirk_relax_diff:
+                self._click_armed = True
+            return
 
-        return actions
+        if self._held_button is not None:
+            # Released: drop below relax threshold -> button up.
+            if abs(smirk_diff) < self.smirk_relax_diff:
+                self._release_held_button()
+                self._click_armed = True
+                return
+            # Side switch: held=left and user is now smirking right (or vice versa).
+            if self._held_button == "left" and (-smirk_diff) > self.smirk_trigger_diff:
+                self._release_held_button()
+                self._press_held_button("right", now)
+            elif self._held_button == "right" and smirk_diff > self.smirk_trigger_diff:
+                self._release_held_button()
+                self._press_held_button("left", now)
+            return
 
-    def release_all(self) -> list[str]:
-        actions: list[str] = []
-        if self.left_is_down:
-            actions.append("left_up")
-        if self.right_is_down:
-            actions.append("right_up")
+        # No button held and click armed: check for fresh trigger.
+        if smirk_diff > self.smirk_trigger_diff:
+            self._press_held_button("left", now)
+            self._click_armed = False
+        elif (-smirk_diff) > self.smirk_trigger_diff:
+            self._press_held_button("right", now)
+            self._click_armed = False
 
-        self.left_is_down = False
-        self.right_is_down = False
-        self.active_blink_side = None
-        self.blink_started_at = 0.0
-        self.hold_mode = False
-        self.missed_same_side_frames = 0
-        self.pending_wink_side = None
-        self.pending_wink_started_at = 0.0
-        self.confirmed_wink_side = None
+    # ---------------------------------------------------------------- scroll
+
+    def _emit_scroll_tick(self, direction: str, speed: float, now: float) -> None:
+        if (now - self._scroll_last_tick_at) < self.scroll_min_tick_interval_sec:
+            return
+        self._scroll_last_tick_at = now
+
+        clamped_speed = speed
+        if clamped_speed < self.scroll_min_units_per_sec:
+            clamped_speed = self.scroll_min_units_per_sec
+        elif clamped_speed > self.scroll_max_units_per_sec:
+            clamped_speed = self.scroll_max_units_per_sec
+
+        previous_speed = getattr(self.cursor, "scroll_units_per_sec", None)
+        try:
+            self.cursor.scroll_units_per_sec = clamped_speed
+            delta = self.scroll_tick_delta if direction == "up" else -self.scroll_tick_delta
+            self.cursor.scroll_with_speed(delta)
+        finally:
+            if previous_speed is not None:
+                self.cursor.scroll_units_per_sec = previous_speed
+
+    def _handle_puff_scroll_down(self, blendshapes: Dict[str, float], now: float) -> None:
+        cp = puff_value(blendshapes)
+
+        if cp <= self.cheek_puff_release:
+            self._puff_intent_started_at = None
+            if self.active_scroll_gesture == "scroll_down":
+                self.active_scroll_gesture = None
+            return
+
+        if cp <= self.cheek_puff_down_low:
+            # Hysteresis dead-zone: preserve state, no tick.
+            return
+
+        if self._puff_intent_started_at is None:
+            self._puff_intent_started_at = now
+            return
+        if (now - self._puff_intent_started_at) < self.scroll_intent_delay_sec:
+            return
+
+        self.active_scroll_gesture = "scroll_down"
+        speed = _lerp(
+            cp,
+            self.cheek_puff_down_low,
+            self.cheek_puff_down_high,
+            self.scroll_min_units_per_sec,
+            self.scroll_max_units_per_sec,
+        )
+        self._emit_scroll_tick("down", speed, now)
+
+    def _handle_tuck_scroll_up(self, blendshapes: Dict[str, float], now: float) -> None:
+        raw = tuck_value(blendshapes)
+        tv = raw - self.tuck_baseline
+        if tv < 0.0:
+            tv = 0.0
+
+        if tv <= self.tuck_release:
+            self._tuck_intent_started_at = None
+            if self.active_scroll_gesture == "scroll_up":
+                self.active_scroll_gesture = None
+            return
+
+        if tv <= self.tuck_trigger_low:
+            return
+
+        if self._tuck_intent_started_at is None:
+            self._tuck_intent_started_at = now
+            return
+        if (now - self._tuck_intent_started_at) < self.scroll_intent_delay_sec:
+            return
+
+        self.active_scroll_gesture = "scroll_up"
+        speed = _lerp(
+            tv,
+            self.tuck_trigger_low,
+            self.tuck_trigger_high,
+            self.scroll_min_units_per_sec,
+            self.scroll_max_units_per_sec,
+        )
+        self._emit_scroll_tick("up", speed, now)
+
+    # ---------------------------------------------------------------- public API
+
+    def release_all(self) -> None:
+        self._release_held_button()
+        self._click_armed = True
+        self._last_click_side = None
+        self._last_click_consumed = False
+        self._puff_intent_started_at = None
+        self._tuck_intent_started_at = None
+        self._scroll_last_tick_at = 0.0
         self.active_scroll_gesture = None
-        self.scroll_gesture_started_at = 0.0
-        self.last_scroll_at = 0.0
-        return actions
+        self._smirk_active = False
 
     def handle_face_analysis(self, face_analysis, now: float) -> None:
-        if face_analysis.screen_position is not None:
+        blendshapes = face_analysis.blendshapes or {}
+
+        # --- Smirk + cursor freeze + click-and-hold ---
+        adj_left, adj_right = self._adjusted_smirk(blendshapes)
+        smirk_diff = adj_left - adj_right
+        self._smirk_active = abs(smirk_diff) >= self.smirk_relax_diff
+
+        held_long_enough = (
+            self._held_button is not None
+            and (now - self._held_started_at) >= self.click_hold_unfreeze_sec
+        )
+        cursor_frozen = self._smirk_active and not held_long_enough
+
+        if face_analysis.screen_position is not None and not cursor_frozen:
             raw_tx, raw_ty = face_analysis.screen_position
             target_x = max(self.minx, min(self.maxx, raw_tx + self.minx))
             target_y = max(self.miny, min(self.maxy, raw_ty + self.miny))
             self.cursor.step_towards(target_x, target_y)
 
         if self.click_enabled:
-            wink_side = self._intentional_wink(face_analysis.wink_direction, now)
-            actions = self.update(
-                wink_side=wink_side,
-                now=now,
-            )
-            self._apply_mouse_actions(actions)
-        self._handle_scroll_gesture(face_analysis=face_analysis, now=now)
+            self._handle_smirk_click_or_hold(smirk_diff, now)
+        elif self._held_button is not None:
+            # Clicks just disabled mid-hold; release cleanly.
+            self._release_held_button()
+            self._click_armed = True
+
+        # One-frame visualizer flash for the click event.
+        if self._last_click_side is not None and self._last_click_consumed:
+            self._last_click_side = None
+        elif self._last_click_side is not None:
+            self._last_click_consumed = True
+
+        # --- Scroll: two independent lip gestures ---
+        if self.scroll_enabled:
+            self._handle_puff_scroll_down(blendshapes, now)
+            self._handle_tuck_scroll_up(blendshapes, now)
+        else:
+            self._puff_intent_started_at = None
+            self._tuck_intent_started_at = None
+            self.active_scroll_gesture = None
 
     def shutdown(self) -> None:
-        self._apply_mouse_actions(self.release_all())
+        self.release_all()

@@ -8,7 +8,7 @@
   <b>Control your mouse cursor with head and eye movements.</b>
 </p>
 
-EyeCursor is a cross-platform desktop application that lets users control the mouse cursor using camera-based face and eye input. It supports multiple tracking modes, per-user calibration profiles, and click/scroll gestures via eye winks.
+EyeCursor is a cross-platform desktop application that lets users control the mouse cursor using camera-based face and eye input. It supports multiple tracking modes, per-user calibration profiles, and click/scroll gestures via facial blendshapes (smirks and cheek puffs).
 
 ---
 
@@ -17,9 +17,9 @@ EyeCursor is a cross-platform desktop application that lets users control the mo
 - **One-Camera Head Pose Mode** -- Move the cursor by turning your head using a single webcam.
 - **Two-Camera Stereo Mode** -- Stereo depth-enhanced head tracking with two webcams.
 - **Eye-Gaze Mode** -- Control the cursor by looking at screen targets using gaze estimation (ETH-XGaze).
-- **Eye Gesture Controls** -- Left wink = left click, right wink = right click, squint = scroll.
+- **Facial Gesture Controls** -- Left smirk presses & holds the left mouse button; right smirk presses & holds the right mouse button (brief = single click, sustained past 0.5 s = drag/draw). Cheek puff scrolls down; lip tuck-in scrolls up. Smirks are detected via `mouthSmileLeft` / `mouthSmileRight`; puff intensity uses `max(cheekPuff, mouthPucker)` (MediaPipe's cheekPuff alone is unreliable); lip tuck uses `max(mouthRollUpper, mouthRollLower, mouthPressLeft, mouthPressRight)`.
 - **User Profiles** -- Each user gets their own calibration data. Multiple users can share one machine.
-- **Calibration Wizards** -- Step-by-step guided calibration for head pose, eye gestures, stereo cameras, and gaze.
+- **Calibration Wizards** -- Step-by-step guided calibration for head pose, facial gestures, stereo cameras, and gaze.
 - **Camera Discovery** -- Automatically detect and preview connected cameras.
 - **Safety Controls** -- Start/pause/stop tracking anytime. Press Q or Esc to stop immediately.
 
@@ -187,17 +187,17 @@ Each profile stores its own calibration data independently.
 
 | Mode | Required Calibrations |
 |------|-----------------------|
-| One-Camera Head Pose | Head Pose + Eye Gestures |
-| Two-Camera Head Pose | Head Pose + Eye Gestures + Stereo |
+| One-Camera Head Pose | Head Pose + Facial Gestures |
+| Two-Camera Head Pose | Head Pose + Facial Gestures + Stereo |
 | Eye Gaze | Gaze |
 
 #### Head Pose Calibration
 
 Look at 9 on-screen targets and press **Capture** at each position. This maps your head movement range to the full screen.
 
-#### Eye Gesture Calibration
+#### Facial Gesture Calibration
 
-Follow 4 prompts: open both eyes, wink left, wink right, squint. This sets personalized thresholds for click and scroll gestures.
+Follow 5 prompts: relax your face, smirk left, smirk right, puff your cheeks out as much as is comfortable, and tuck your lips inward (roll/press them together). This sets personalized thresholds for click and scroll gestures based on your natural blendshape range.
 
 #### Stereo Calibration (Two-Camera Mode only)
 
@@ -218,9 +218,14 @@ Browse for the ETH-XGaze model weights file, then look at 9 on-screen targets an
 
 | Gesture | Action |
 |---------|--------|
-| Left eye wink (hold ~1s) | Left click |
-| Right eye wink (hold ~1s) | Right click |
-| Squint both eyes | Scroll |
+| Left smirk | Press & hold left mouse button (release on relax). Brief smirk = single click; sustained smirk past 0.5s = drag/draw |
+| Right smirk | Press & hold right mouse button (same hold/drag semantics) |
+| Cheek puff (lips outward) | Scroll down (speed proportional to intensity) |
+| Lip tuck-in (lips rolled inward or pressed together) | Scroll up (speed proportional to intensity) |
+
+Cursor is briefly frozen during the first 0.5 s of a smirk, then unfreezes so you can drag while the button is held -- this is what enables drawing in paint apps.
+
+A 200 ms intent buffer on each scroll direction smooths out brief, transient lip motions so they don't fire stray scroll bursts.
 
 ### 7. Stop Tracking
 
@@ -245,7 +250,7 @@ Click **Settings** in the sidebar to adjust:
 
 - **Cursor Speed** -- How fast the cursor moves relative to head/gaze movement.
 - **Frame Rate** -- Camera capture rate (higher = smoother but more CPU).
-- **Scroll Speed** -- Scroll amount per squint gesture.
+- **Scroll Speed** -- Default scroll speed cap (units per second) for cheek-puff scrolls.
 - **EMA Smoothing** -- Smoothing factor for cursor movement (lower = smoother, higher = more responsive).
 
 ---
@@ -270,5 +275,6 @@ Click **Settings** in the sidebar to adjust:
 - Close other apps using the camera.
 - Ensure adequate lighting.
 
-**Eye gestures not registering:**
-- Redo eye gesture calibration with a clear difference between open-eyes and wink positions.
+**Facial gestures not registering:**
+- Redo facial gesture calibration. Capture distinct, exaggerated samples (clear left/right smirks, full cheek puff) so the per-user thresholds land in a reachable range.
+- Glasses, facial hair, or strong sidelight on one cheek can depress blendshape scores -- adjust lighting and recalibrate.

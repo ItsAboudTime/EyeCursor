@@ -42,15 +42,7 @@ def run_tracking_loop(cursor, stop_queue, control_queue):
     screen_w = maxx - minx + 1
     screen_h = maxy - miny + 1
 
-    gesture_controller = GestureController(
-        cursor=cursor,
-        hold_trigger_seconds=1.0,
-        release_missed_frames=5,
-        both_eyes_open_threshold=BOTH_EYES_OPEN_SCROLL_THRESHOLD,
-        both_eyes_squint_threshold=BOTH_EYES_SQUINT_SCROLL_THRESHOLD,
-        scroll_trigger_seconds=EYE_SCROLL_HOLD_SECONDS,
-        scroll_delta=EYE_SCROLL_DELTA,
-    )
+    gesture_controller = GestureController(cursor=cursor)
     latest_head_angles = None
 
     print("Head+Wink Cursor demo running.")

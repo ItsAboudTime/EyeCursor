@@ -8,10 +8,16 @@ import numpy as np
 
 from src.core.modes._viz_helpers import derive_last_action
 from src.core.modes.base import TrackingMode
+from src.core.modes.one_camera_head_pose import _build_gesture_controller
 from src.face_tracking.controllers.gesture import GestureController
 from src.face_tracking.pipelines.stereo_face_analysis import (
     StereoCalibration,
     StereoFaceAnalysisPipeline,
+)
+from src.face_tracking.signals.blendshapes import (
+    compute_smirk_activations,
+    puff_value,
+    tuck_value,
 )
 
 
@@ -59,7 +65,7 @@ class TwoCameraHeadPoseMode(TrackingMode):
     display_name = "Two-Camera Head Pose"
     description = (
         "Stereo head tracking with depth estimation. "
-        "Requires two cameras and stereo calibration."
+        "Smirks for clicks; cheek puffs for scrolls. Requires two cameras and stereo calibration."
     )
     required_camera_count = 2
     requires_head_pose_calibration = True
@@ -115,7 +121,7 @@ class TwoCameraHeadPoseMode(TrackingMode):
             profile_calibrations.get("two_camera_head_pose")
             or profile_calibrations["one_camera_head_pose"]
         )
-        gesture_calib = profile_calibrations["eye_gestures"]
+        gesture_calib = profile_calibrations.get("eye_gestures")
 
         stereo_calib = StereoCalibration(
             k1=np.array(stereo_data["K1"], dtype=np.float64),
@@ -141,8 +147,6 @@ class TwoCameraHeadPoseMode(TrackingMode):
             yaw_span=head_calib["yaw_span"],
             pitch_span=head_calib["pitch_span"],
             ema_alpha=head_calib.get("ema_alpha", 0.25),
-            wink_closed_threshold=gesture_calib.get("wink_eye_closed_threshold", 0.3),
-            wink_open_threshold=gesture_calib.get("wink_eye_open_threshold", 0.3),
         )
         pipeline.calibrate_to_center(head_calib["center_yaw"], head_calib["center_pitch"])
 
@@ -150,15 +154,7 @@ class TwoCameraHeadPoseMode(TrackingMode):
         screen_w = maxx - minx + 1
         screen_h = maxy - miny + 1
 
-        gesture_controller = GestureController(
-            cursor=cursor,
-            hold_trigger_seconds=gesture_calib.get("hold_duration_click", 1.0),
-            release_missed_frames=5,
-            both_eyes_open_threshold=gesture_calib["both_eyes_open_threshold"],
-            both_eyes_squint_threshold=gesture_calib["both_eyes_squint_threshold"],
-            scroll_trigger_seconds=1.0,
-            scroll_delta=gesture_calib.get("scroll_delta", 120),
-        )
+        gesture_controller = _build_gesture_controller(cursor, gesture_calib)
         gesture_controller.click_enabled = settings.get("click_enabled", True)
         gesture_controller.scroll_enabled = settings.get("scroll_enabled", True)
 
@@ -190,7 +186,6 @@ class TwoCameraHeadPoseMode(TrackingMode):
                     screen_height=screen_h,
                 )
                 if result is not None:
-                    pre_blink = gesture_controller.active_blink_side
                     pre_scroll = gesture_controller.active_scroll_gesture
                     gesture_controller.handle_face_analysis(result, now=time.time())
                     broadcaster.send(result.depth)
@@ -199,7 +194,6 @@ class TwoCameraHeadPoseMode(TrackingMode):
                         frame_right=frame_r,
                         result=result,
                         gesture_controller=gesture_controller,
-                        pre_blink=pre_blink,
                         pre_scroll=pre_scroll,
                         screen_w=screen_w,
                         screen_h=screen_h,
@@ -218,7 +212,6 @@ class TwoCameraHeadPoseMode(TrackingMode):
         frame_right,
         result,
         gesture_controller: GestureController,
-        pre_blink: Optional[str],
         pre_scroll: Optional[str],
         screen_w: int,
         screen_h: int,
@@ -233,8 +226,7 @@ class TwoCameraHeadPoseMode(TrackingMode):
         self._last_viz_emit = now
 
         last_action = derive_last_action(
-            pre_blink=pre_blink,
-            post_blink=gesture_controller.active_blink_side,
+            last_click_side=gesture_controller._last_click_side,
             pre_scroll=pre_scroll,
             post_scroll=gesture_controller.active_scroll_gesture,
         )
@@ -243,13 +235,23 @@ class TwoCameraHeadPoseMode(TrackingMode):
         yaw_deg = float(angles[0]) if angles is not None else None
         pitch_deg = float(angles[1]) if angles is not None else None
 
+        blendshapes = result.blendshapes or {}
+        smirk_left, smirk_right = compute_smirk_activations(blendshapes)
+        cheek_puff = puff_value(blendshapes)
+        tuck = tuck_value(blendshapes)
+
         gesture_state = {
-            "active_blink_side": gesture_controller.active_blink_side,
             "active_scroll_gesture": gesture_controller.active_scroll_gesture,
             "click_enabled": gesture_controller.click_enabled,
             "scroll_enabled": gesture_controller.scroll_enabled,
-            "left_is_down": gesture_controller.left_is_down,
-            "right_is_down": gesture_controller.right_is_down,
+            "click_armed": gesture_controller._click_armed,
+            "last_click_side": gesture_controller._last_click_side,
+            "smirk_left_activation": smirk_left,
+            "smirk_right_activation": smirk_right,
+            "cheek_puff_value": cheek_puff,
+            "tuck_value": tuck,
+            "held_button": gesture_controller._held_button,
+            "is_held": gesture_controller._held_button is not None,
             "last_action": last_action,
             "last_action_at": now if last_action else None,
         }
@@ -286,6 +288,7 @@ class TwoCameraHeadPoseMode(TrackingMode):
             "wink_direction": result.wink_direction,
             "left_eye_ratio": result.left_eye_ratio,
             "right_eye_ratio": result.right_eye_ratio,
+            "blendshapes": blendshapes,
             "gesture_state": gesture_state,
             "paused": self._paused,
         }

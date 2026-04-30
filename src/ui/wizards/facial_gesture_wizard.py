@@ -1,35 +1,42 @@
 from typing import Optional
 
 import cv2
-import numpy as np
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QProgressBar,
+    QPushButton,
     QVBoxLayout,
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QImage, QPixmap
 
-from src.core.calibration.eye_gesture_calibration import (
+from src.core.calibration.facial_gesture_calibration import (
     NUM_CAPTURE_FRAMES,
-    EyeGestureCalibrationSession,
+    FacialGestureCalibrationSession,
 )
 from src.core.devices.camera_manager import CameraManager
 
 
 STEPS = [
-    ("open", "Open both eyes normally."),
-    ("left_wink", "Close your LEFT eye (left wink)."),
-    ("right_wink", "Close your RIGHT eye (right wink)."),
-    ("squint", "Squint both eyes."),
-    ("wide_open", "Open both eyes wide open."),
+    ("relax", "Relax your face. Look at the camera neutrally."),
+    ("left_smirk", "Smirk to the LEFT (raise the LEFT side of your mouth)."),
+    ("right_smirk", "Smirk to the RIGHT (raise the RIGHT side of your mouth)."),
+    (
+        "cheek_puff_max",
+        "Puff your cheeks and push your lips outward "
+        "(as if blowing) -- as fully as is comfortable.",
+    ),
+    (
+        "tuck_in_max",
+        "Tuck your lips inward (roll them in) or press them firmly together — "
+        "as fully as is comfortable.",
+    ),
 ]
 
 
-class EyeGestureCalibrationWizard(QDialog):
+class FacialGestureCalibrationWizard(QDialog):
     def __init__(
         self,
         camera_index: int,
@@ -37,7 +44,7 @@ class EyeGestureCalibrationWizard(QDialog):
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Eye Gesture Calibration")
+        self.setWindowTitle("Facial Gesture Calibration")
         self.setMinimumSize(700, 550)
         self.setStyleSheet(
             "QDialog { background: #2d3436; }"
@@ -47,11 +54,11 @@ class EyeGestureCalibrationWizard(QDialog):
 
         self._camera_index = camera_index
         self._camera_manager = camera_manager
-        self._session = EyeGestureCalibrationSession()
+        self._session = FacialGestureCalibrationSession()
         self._current_step = 0
         self._is_capturing = False
         self._result: Optional[dict] = None
-        self._latest_ratios: Optional[tuple] = None
+        self._latest_sample: Optional[tuple] = None
 
         self._setup_ui()
 
@@ -78,10 +85,10 @@ class EyeGestureCalibrationWizard(QDialog):
         self._preview_label.setStyleSheet("background: #2d3436; border-radius: 8px;")
         layout.addWidget(self._preview_label)
 
-        self._ratio_label = QLabel("Eye ratios: --")
-        self._ratio_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._ratio_label.setStyleSheet("font-size: 14px; color: #b2bec3;")
-        layout.addWidget(self._ratio_label)
+        self._sample_label = QLabel("Smirk L=--  R=--   Puff=--   Tuck=--")
+        self._sample_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._sample_label.setStyleSheet("font-size: 14px; color: #b2bec3;")
+        layout.addWidget(self._sample_label)
 
         self._progress_label = QLabel(f"Step 1 / {len(STEPS)}")
         self._progress_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -154,26 +161,33 @@ class EyeGestureCalibrationWizard(QDialog):
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             step_name = STEPS[self._current_step][0]
             capture_fn = {
-                "open": self._session.capture_open_eyes,
-                "left_wink": self._session.capture_left_wink,
-                "right_wink": self._session.capture_right_wink,
-                "squint": self._session.capture_squint,
-                "wide_open": self._session.capture_wide_open,
+                "relax": self._session.capture_relax,
+                "left_smirk": self._session.capture_left_smirk,
+                "right_smirk": self._session.capture_right_smirk,
+                "cheek_puff_max": self._session.capture_cheek_puff_max,
+                "tuck_in_max": self._session.capture_tuck_in_max,
             }[step_name]
 
-            ratios = capture_fn(rgb)
-            if ratios:
-                self._latest_ratios = ratios
+            sample = capture_fn(rgb)
+            if sample:
+                self._latest_sample = sample
             count = self._session.get_sample_count(step_name)
             self._progress_bar.setValue(count)
 
             if self._session.has_enough_samples(step_name):
                 self._is_capturing = False
                 self._advance_step()
+        else:
+            # Even when not actively capturing, show a live preview readout.
+            rgb_for_preview = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            sample = self._session._sample(rgb_for_preview)
+            if sample:
+                self._latest_sample = sample
 
-        if self._latest_ratios:
-            self._ratio_label.setText(
-                f"Eye ratios: L={self._latest_ratios[0]:.3f}  R={self._latest_ratios[1]:.3f}"
+        if self._latest_sample:
+            l, r, cp, tk = self._latest_sample
+            self._sample_label.setText(
+                f"Smirk L={l:.3f}  R={r:.3f}   Puff={cp:.3f}   Tuck={tk:.3f}"
             )
 
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -195,7 +209,7 @@ class EyeGestureCalibrationWizard(QDialog):
     def _advance_step(self) -> None:
         self._current_step += 1
         if self._current_step < len(STEPS):
-            step_name, instruction = STEPS[self._current_step]
+            _, instruction = STEPS[self._current_step]
             self._instruction_label.setText(instruction)
             self._progress_label.setText(f"Step {self._current_step + 1} / {len(STEPS)}")
             self._capture_btn.setEnabled(True)
@@ -223,7 +237,7 @@ class EyeGestureCalibrationWizard(QDialog):
         self._session.reset()
         self._current_step = 0
         self._result = None
-        self._latest_ratios = None
+        self._latest_sample = None
         self._capture_btn.setVisible(True)
         self._capture_btn.setEnabled(True)
         self._save_btn.setVisible(False)

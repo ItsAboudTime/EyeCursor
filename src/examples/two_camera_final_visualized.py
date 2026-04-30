@@ -647,8 +647,6 @@ def run_tracking_loop(cursor, stop_queue, control_queue, visualization_queue):
             yaw_span=40.0,
             pitch_span=20.0,
             ema_alpha=0.08,
-            wink_closed_threshold=WINK_EYE_CLOSED_THRESHOLD,
-            wink_open_threshold=WINK_EYE_OPEN_THRESHOLD,
         )
         left_vis_provider = FaceLandmarksProvider()
         right_vis_provider = FaceLandmarksProvider()
@@ -664,15 +662,7 @@ def run_tracking_loop(cursor, stop_queue, control_queue, visualization_queue):
     screen_w = maxx - minx + 1
     screen_h = maxy - miny + 1
 
-    gesture_controller = GestureController(
-        cursor=cursor,
-        hold_trigger_seconds=1.0,
-        release_missed_frames=5,
-        both_eyes_open_threshold=BOTH_EYES_OPEN_SCROLL_THRESHOLD,
-        both_eyes_squint_threshold=BOTH_EYES_SQUINT_SCROLL_THRESHOLD,
-        scroll_trigger_seconds=EYE_SCROLL_HOLD_SECONDS,
-        scroll_delta=EYE_SCROLL_DELTA,
-    )
+    gesture_controller = GestureController(cursor=cursor)
     latest_head_angles = None
 
     print("Stereo Head+Wink Cursor demo running.")

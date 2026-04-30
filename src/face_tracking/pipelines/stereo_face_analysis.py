@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from pathlib import Path
-import time
 from typing import Dict, Iterable, Optional, Sequence, Tuple
 
 import cv2
@@ -8,6 +7,7 @@ import numpy as np
 
 from src.face_tracking.pipelines.face_analysis import FaceAnalysisResult
 from src.face_tracking.providers.face_landmarks import FaceLandmarksProvider
+from src.face_tracking.signals.blendshapes import extract_blendshapes
 from src.face_tracking.signals.wink import detect_wink_direction_from_ratios, get_eye_aspect_ratios
 
 
@@ -166,7 +166,6 @@ class StereoHeadPoseDepthMapper:
         right_axis = right - left
         right_axis /= np.linalg.norm(right_axis) + 1e-9
 
-        # Orthogonalize the up axis against right to reduce roll leakage into yaw.
         up_axis = top - bottom
         up_axis = up_axis - np.dot(up_axis, right_axis) * right_axis
         up_axis /= np.linalg.norm(up_axis) + 1e-9
@@ -175,8 +174,6 @@ class StereoHeadPoseDepthMapper:
         forward_axis /= np.linalg.norm(forward_axis) + 1e-9
         forward_axis = -forward_axis
 
-        # Keep the same convention as the one-camera pipeline: neutral look points toward -Z.
-        # Without this, the axis can flip and produce angles near +/-180 degrees.
         if forward_axis[2] > 0.0:
             forward_axis = -forward_axis
 
@@ -185,7 +182,6 @@ class StereoHeadPoseDepthMapper:
     def _compute_angles(self, direction: np.ndarray) -> Tuple[float, float]:
         x, y, z = float(direction[0]), float(direction[1]), float(direction[2])
 
-        # Keep yaw convention aligned with the one-camera mapper.
         yaw = float(np.degrees(np.arctan2(x, -z)))
         pitch = float(np.degrees(np.arctan2(y, -z)))
 
@@ -286,9 +282,6 @@ class StereoFaceAnalysisPipeline:
         yaw_span: float = 20.0,
         pitch_span: float = 10.0,
         ema_alpha: float = 0.25,
-        wink_closed_threshold: float = 0.3,
-        wink_open_threshold: float = 0.3,
-        wink_freeze_seconds: float = 1.0,
         face_model_path: Optional[str] = None,
     ) -> None:
         self._left_provider = FaceLandmarksProvider(face_model_path=face_model_path)
@@ -333,17 +326,6 @@ class StereoFaceAnalysisPipeline:
             pitch_span=pitch_span,
             ema_alpha=ema_alpha,
         )
-        self._wink_closed_threshold = float(wink_closed_threshold)
-        self._wink_open_threshold = float(wink_open_threshold)
-        self._debug_landmark_indices = [1, 10, 152, 234, 454]
-        self._last_screen_position: Optional[Tuple[int, int]] = None
-        self._last_angles: Optional[Tuple[float, float]] = None
-        self._last_depth: Optional[float] = None
-        self._wink_freeze_seconds = float(wink_freeze_seconds)
-        if self._wink_freeze_seconds < 0.0:
-            raise ValueError("wink_freeze_seconds must be >= 0")
-        self._wink_started_at: Optional[float] = None
-        self._last_wink_direction: Optional[str] = None
 
     def analyze(
         self,
@@ -370,16 +352,6 @@ class StereoFaceAnalysisPipeline:
             right_frame_height=right_frame_height,
         )
 
-        self._debug_print_points(
-            left_landmarks=left_observation.landmarks,
-            right_landmarks=right_observation.landmarks,
-            left_frame_width=left_frame_width,
-            left_frame_height=left_frame_height,
-            right_frame_width=right_frame_width,
-            right_frame_height=right_frame_height,
-            points_3d=points_3d,
-        )
-
         mapped = self._pose_mapper.estimate_screen_position(
             points_3d=points_3d,
             screen_width=screen_width,
@@ -392,89 +364,26 @@ class StereoFaceAnalysisPipeline:
         depth: Optional[float] = None
         if mapped is not None:
             screen_position, angles, depth = mapped
-            print(
-                "yaw={}, pitch={}".format(
-                    float(angles[0]),
-                    float(angles[1]),
-                )
-            )
-            print(
-                "screen_x={}, screen_y={}".format(
-                    int(screen_position[0]),
-                    int(screen_position[1]),
-                )
-            )
 
-        right_left_ratio, right_right_ratio = get_eye_aspect_ratios(right_observation.landmarks)
-
-        # Gesture detection is sourced from the right camera only.
-        left_eye_ratio = float(right_left_ratio)
-        right_eye_ratio = float(right_right_ratio)
-
-        eye_closed_threshold = self._wink_closed_threshold
-        left_eye_state = "closed" if left_eye_ratio <= eye_closed_threshold else "open"
-        right_eye_state = "closed" if right_eye_ratio <= eye_closed_threshold else "open"
-
-        print(
-            "left_eye_ratio={:.4f} ({}) | right_eye_ratio={:.4f} ({})".format(
-                left_eye_ratio,
-                left_eye_state,
-                right_eye_ratio,
-                right_eye_state,
-            )
-        )
-
+        # Gesture detection sources blendshapes and EAR from the left camera so
+        # downstream consumers see the same observation that drives head pose.
+        blendshapes = extract_blendshapes(left_observation.blendshapes)
+        left_eye_ratio, right_eye_ratio = get_eye_aspect_ratios(left_observation.landmarks)
         wink_direction = detect_wink_direction_from_ratios(
-            left_ratio=left_eye_ratio,
-            right_ratio=right_eye_ratio,
-            closed_threshold=self._wink_closed_threshold,
-            open_threshold=self._wink_open_threshold,
+            left_ratio=float(left_eye_ratio),
+            right_ratio=float(right_eye_ratio),
         )
-
-        if wink_direction is None:
-            self._wink_started_at = None
-            self._last_wink_direction = None
-        else:
-            now = time.monotonic()
-            if self._last_wink_direction != wink_direction:
-                self._wink_started_at = now
-                self._last_wink_direction = wink_direction
-
-        if (
-            wink_direction is not None
-            and self._last_screen_position is not None
-            and self._last_angles is not None
-        ):
-            should_freeze = True
-            if self._wink_started_at is not None and self._wink_freeze_seconds > 0.0:
-                elapsed = time.monotonic() - self._wink_started_at
-                if elapsed >= self._wink_freeze_seconds:
-                    should_freeze = False
-            elif self._wink_freeze_seconds == 0.0:
-                should_freeze = False
-
-            if should_freeze:
-                screen_position = self._last_screen_position
-                angles = self._last_angles
-                depth = self._last_depth
-            else:
-                self._last_screen_position = screen_position
-                self._last_angles = angles
-                self._last_depth = depth
-        else:
-            self._last_screen_position = screen_position
-            self._last_angles = angles
-            self._last_depth = depth
 
         return FaceAnalysisResult(
             landmarks=left_observation.landmarks,
             screen_position=screen_position,
             angles=angles,
             wink_direction=wink_direction,
-            left_eye_ratio=left_eye_ratio,
-            right_eye_ratio=right_eye_ratio,
+            left_eye_ratio=float(left_eye_ratio),
+            right_eye_ratio=float(right_eye_ratio),
             facial_transformation_matrix=left_observation.facial_transformation_matrix,
             depth=depth,
+            blendshapes=blendshapes,
             right_landmarks=right_observation.landmarks,
             points_3d=points_3d,
         )
@@ -485,51 +394,3 @@ class StereoFaceAnalysisPipeline:
     def release(self) -> None:
         self._left_provider.release()
         self._right_provider.release()
-
-    def _debug_print_points(
-        self,
-        left_landmarks: Iterable,
-        right_landmarks: Iterable,
-        left_frame_width: int,
-        left_frame_height: int,
-        right_frame_width: int,
-        right_frame_height: int,
-        points_3d: Dict[int, np.ndarray],
-    ) -> None:
-        left_list = list(left_landmarks)
-        right_list = list(right_landmarks)
-
-        print("pre-triangulation points:")
-
-        for idx in self._debug_landmark_indices:
-            if idx >= len(left_list) or idx >= len(right_list):
-                continue
-            lp = left_list[idx]
-            rp = right_list[idx]
-            left_x = float(lp.x) * left_frame_width
-            left_y = float(lp.y) * left_frame_height
-            right_x = float(rp.x) * right_frame_width
-            right_y = float(rp.y) * right_frame_height
-            print(
-                "idx={} left=({}, {}) right=({}, {})".format(
-                    idx,
-                    left_x,
-                    left_y,
-                    right_x,
-                    right_y,
-                )
-            )
-
-        print("post-triangulation points:")
-        for idx in self._debug_landmark_indices:
-            p = points_3d.get(idx)
-            if p is None:
-                continue
-            print(
-                "idx={} xyz=({}, {}, {})".format(
-                    idx,
-                    float(p[0]),
-                    float(p[1]),
-                    float(p[2]),
-                )
-            )

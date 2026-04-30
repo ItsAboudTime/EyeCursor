@@ -119,8 +119,8 @@ class CalibrationPage(QWidget):
         calibrations = [
             ("one_camera_head_pose", "Head Pose Calibration",
              "Maps head movement to cursor position. Required for one-camera and two-camera modes."),
-            ("eye_gestures", "Eye Gesture Calibration",
-             "Calibrates wink and squint thresholds for clicks and scrolling."),
+            ("eye_gestures", "Facial Gesture Calibration",
+             "Calibrates smirk and cheek-puff thresholds for clicks and scrolling."),
             ("stereo", "Stereo Calibration",
              "Calibrates two cameras for stereo depth. Required for two-camera mode."),
             ("eye_gaze", "Gaze Calibration",
@@ -214,9 +214,9 @@ class CalibrationPage(QWidget):
                 self.refresh_status()
 
     def _run_eye_gesture_calibration(self, camera_index: int) -> None:
-        from src.ui.wizards.eye_gesture_wizard import EyeGestureCalibrationWizard
+        from src.ui.wizards.facial_gesture_wizard import FacialGestureCalibrationWizard
 
-        wizard = EyeGestureCalibrationWizard(
+        wizard = FacialGestureCalibrationWizard(
             camera_index=camera_index,
             camera_manager=self._camera_manager,
             parent=self,
