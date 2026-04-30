@@ -88,7 +88,7 @@ class EyeGestureCalibrationSession:
         wide_open_right_avg = float(np.median([s[1] for s in self._wide_open_samples]))
 
         both_eyes_open_threshold = (wide_open_left_avg + wide_open_right_avg) / 2.0 * 0.9
-        both_eyes_squint_threshold = (squint_left_avg + squint_right_avg) / 2.0 * 1.15
+        both_eyes_squint_threshold = (squint_left_avg + squint_right_avg) / 2.0 * 1.1
 
         if both_eyes_squint_threshold >= both_eyes_open_threshold:
             both_eyes_open_threshold = (open_left_avg + open_right_avg) / 2.0
