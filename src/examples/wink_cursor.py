@@ -1,9 +1,9 @@
 """
-Demo: control the mouse cursor with smirk gestures.
+Demo: control the mouse cursor with lip gestures.
 
-Each smirk fires a single left or right click. The user must relax their
-face before another click can fire (boolean armed flag with relax-diff
-hysteresis).
+Pucker lips fires a left click; tucking lips inward fires a right click.
+The user must relax their face before another click can fire (boolean
+armed flag with hysteresis).
 
 Requires webcam, OpenCV, and MediaPipe. Press 'q' to quit.
 """
@@ -14,11 +14,13 @@ import cv2
 
 from src.cursor import create_cursor
 from src.face_tracking.controllers.blendshape_gesture_constants import (
-    SMIRK_RELAX_DIFF,
-    SMIRK_TRIGGER_DIFF,
+    CHEEK_PUFF_DOWN_HIGH,
+    CHEEK_PUFF_RELEASE,
+    TUCK_RELEASE,
+    TUCK_TRIGGER_HIGH,
 )
 from src.face_tracking.pipelines.face_analysis import FaceAnalysisPipeline
-from src.face_tracking.signals.blendshapes import compute_smirk_activations
+from src.face_tracking.signals.blendshapes import puff_value, tuck_value
 
 
 def main():
@@ -26,7 +28,7 @@ def main():
     pipeline = FaceAnalysisPipeline(yaw_span=20.0, pitch_span=10.0, ema_alpha=0.25)
 
     cap = cv2.VideoCapture(0)
-    print("Smirk-Cursor demo running. Press 'q' to quit.")
+    print("Lip-Cursor demo running. Press 'q' to quit.")
 
     click_armed = True
 
@@ -46,23 +48,23 @@ def main():
         )
         if result is not None:
             blendshapes = result.blendshapes or {}
-            left_act, right_act = compute_smirk_activations(blendshapes)
-            diff = left_act - right_act
+            puff = puff_value(blendshapes)
+            tuck = tuck_value(blendshapes)
 
             if not click_armed:
-                if abs(diff) < SMIRK_RELAX_DIFF:
+                if puff < CHEEK_PUFF_RELEASE and tuck < TUCK_RELEASE:
                     click_armed = True
             else:
-                if diff > SMIRK_TRIGGER_DIFF:
+                if puff > CHEEK_PUFF_DOWN_HIGH:
                     cur.left_click()
                     click_armed = False
-                elif (-diff) > SMIRK_TRIGGER_DIFF:
+                elif tuck > TUCK_TRIGGER_HIGH:
                     cur.right_click()
                     click_armed = False
 
         cv2.putText(
             frame,
-            "Smirk left = left click, smirk right = right click. Relax to re-arm.",
+            "Pucker = left click, tuck lips in = right click. Relax to re-arm.",
             (10, 30),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
@@ -70,7 +72,7 @@ def main():
             2,
         )
 
-        cv2.imshow("Smirk Cursor", frame)
+        cv2.imshow("Lip Cursor", frame)
         key = cv2.waitKey(1) & 0xFF
         if key in (27, ord("q")):
             break

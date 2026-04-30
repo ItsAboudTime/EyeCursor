@@ -36,32 +36,35 @@ def _lerp(value: float, in_low: float, in_high: float, out_low: float, out_high:
 
 
 class GestureController:
-    """Maps face signals to cursor movement, click-and-hold actions, and lip-driven scrolls.
+    """Maps face signals to cursor movement, click-and-hold actions, and smirk-driven scrolls.
 
-    Click-and-hold (drawing): a smirk presses the corresponding mouse button DOWN
-    immediately. The cursor is frozen for the first ``click_hold_unfreeze_sec``
-    of the held smirk so the press lands on a stable target. After that, the
-    cursor resumes moving while the button stays held -- this lets the user
-    drag/draw. Releasing the smirk (diff drops below ``smirk_relax_diff``)
-    releases the button. A brief smirk produces a press+release sequence,
-    which apps treat as a single click.
+    Gesture map:
+      - Pucker lips (cheekPuff/mouthPucker proxy) -> press & hold LEFT mouse button
+      - Tuck lips inward (mouthRoll/mouthPress proxy) -> press & hold RIGHT mouse button
+      - Smirk LEFT (mouthSmileLeft > mouthSmileRight) -> scroll UP
+      - Smirk RIGHT (mouthSmileRight > mouthSmileLeft) -> scroll DOWN
 
-    Cursor freeze: still applied during the first ``click_hold_unfreeze_sec``
-    of any smirk (smirks deform mouth landmarks slightly, leaking into the
-    head-pose estimate). After that window the freeze lifts even while the
-    button stays held.
+    Click-and-hold (drawing): a lip gesture (pucker or tuck) presses the
+    corresponding mouse button DOWN immediately. The cursor is frozen for
+    the first ``click_hold_unfreeze_sec`` of the held button so the press
+    lands on a stable target. After that, the cursor resumes moving while
+    the button stays held -- this enables drag/draw. Releasing the lip
+    gesture (intensity drops below the calibrated release threshold)
+    releases the button. A brief pucker/tuck produces a press+release,
+    which apps treat as a single click. The cursor is also frozen during
+    the ramp-up to a click trigger so the press is precise.
 
-    Scrolls -- two distinct lip gestures:
-      - Cheek puff (mouthPucker proxy) -> scroll DOWN, speed lerps from
-        cheek_puff_down_low to cheek_puff_down_high.
-      - Lip tuck-in (max of mouthRoll/mouthPress) -> scroll UP, speed lerps
-        from tuck_trigger_low to tuck_trigger_high.
-    Each has its own 200 ms intent buffer to filter accidental activations.
+    Smirk scroll: the signed smirk differential drives continuous scroll
+    with speed proportional to ``|diff|`` between ``smirk_relax_diff`` and
+    ``smirk_trigger_diff``. Positive diff (left smirk) = scroll up;
+    negative diff (right smirk) = scroll down. A 200 ms intent buffer
+    filters accidental brief smirks. The cursor is NOT frozen during
+    smirk scrolls -- the user is presumably looking at content.
 
-    Asymmetric faces: ``smirk_baseline_left`` / ``smirk_baseline_right`` and
-    ``tuck_baseline`` capture the user's natural at-rest activations from
-    calibration. The runtime subtracts these so an asymmetric resting face
-    reads as zero.
+    Asymmetric faces: ``smirk_baseline_left`` / ``smirk_baseline_right``
+    and ``tuck_baseline`` / ``cheek_puff_baseline`` capture the user's
+    natural at-rest activations from calibration. The runtime subtracts
+    these so an asymmetric resting face reads as zero across all signals.
     """
 
     def __init__(
@@ -76,6 +79,7 @@ class GestureController:
         cheek_puff_down_low: float = CHEEK_PUFF_DOWN_LOW,
         cheek_puff_down_high: float = CHEEK_PUFF_DOWN_HIGH,
         cheek_puff_up_high: float = CHEEK_PUFF_UP_HIGH,
+        cheek_puff_baseline: float = 0.0,
         tuck_release: float = TUCK_RELEASE,
         tuck_trigger_low: float = TUCK_TRIGGER_LOW,
         tuck_trigger_high: float = TUCK_TRIGGER_HIGH,
@@ -99,6 +103,8 @@ class GestureController:
                 "cheek_puff thresholds must satisfy: "
                 "0 <= release < down_low < down_high <= up_high"
             )
+        if cheek_puff_baseline < 0.0:
+            raise ValueError("cheek_puff_baseline must be >= 0")
         if not (0.0 <= tuck_release < tuck_trigger_low < tuck_trigger_high):
             raise ValueError(
                 "tuck thresholds must satisfy: 0 <= release < trigger_low < trigger_high"
@@ -130,6 +136,7 @@ class GestureController:
         self.cheek_puff_down_low = float(cheek_puff_down_low)
         self.cheek_puff_down_high = float(cheek_puff_down_high)
         self.cheek_puff_up_high = float(cheek_puff_up_high)
+        self.cheek_puff_baseline = float(cheek_puff_baseline)
         self.tuck_release = float(tuck_release)
         self.tuck_trigger_low = float(tuck_trigger_low)
         self.tuck_trigger_high = float(tuck_trigger_high)
@@ -149,11 +156,9 @@ class GestureController:
         self._held_started_at: float = 0.0
         self._last_click_side: Optional[str] = None  # one-frame visualizer flash
         self._last_click_consumed: bool = False
-        self._smirk_active: bool = False
 
         # Scroll state
-        self._puff_intent_started_at: Optional[float] = None
-        self._tuck_intent_started_at: Optional[float] = None
+        self._smirk_scroll_intent_started_at: Optional[float] = None
         self._scroll_last_tick_at: float = 0.0
         self.active_scroll_gesture: Optional[str] = None  # 'scroll_up' | 'scroll_down' | None
 
@@ -168,6 +173,16 @@ class GestureController:
         if adj_right < 0.0:
             adj_right = 0.0
         return adj_left, adj_right
+
+    def _adjusted_puff(self, blendshapes: Dict[str, float]) -> float:
+        raw = puff_value(blendshapes)
+        v = raw - self.cheek_puff_baseline
+        return v if v > 0.0 else 0.0
+
+    def _adjusted_tuck(self, blendshapes: Dict[str, float]) -> float:
+        raw = tuck_value(blendshapes)
+        v = raw - self.tuck_baseline
+        return v if v > 0.0 else 0.0
 
     def _press_held_button(self, side: str, now: float) -> None:
         if side == "left":
@@ -191,34 +206,53 @@ class GestureController:
 
     # ---------------------------------------------------------------- click
 
-    def _handle_smirk_click_or_hold(self, smirk_diff: float, now: float) -> None:
-        # Re-arm only when the previous click has already fully released and
-        # the user has relaxed.
+    def _handle_lip_click_or_hold(self, puff: float, tuck: float, now: float) -> None:
+        # Use the calibrated *_down_high / *_trigger_high as the click-trigger
+        # point (~78% of user max) and *_release (~20% of user max) as the
+        # button-release point. This gives natural hysteresis: a deliberate
+        # gesture is required to fire, and a clear relaxation is required to
+        # release the button.
+        puff_active = puff >= self.cheek_puff_release
+        tuck_active = tuck >= self.tuck_release
+        puff_trigger = puff >= self.cheek_puff_down_high
+        tuck_trigger = tuck >= self.tuck_trigger_high
+
+        # Re-arm: no button held + previous click already fired + user has
+        # released both gestures.
         if self._held_button is None and not self._click_armed:
-            if abs(smirk_diff) < self.smirk_relax_diff:
+            if not puff_active and not tuck_active:
                 self._click_armed = True
             return
 
         if self._held_button is not None:
-            # Released: drop below relax threshold -> button up.
-            if abs(smirk_diff) < self.smirk_relax_diff:
-                self._release_held_button()
-                self._click_armed = True
-                return
-            # Side switch: held=left and user is now smirking right (or vice versa).
-            if self._held_button == "left" and (-smirk_diff) > self.smirk_trigger_diff:
-                self._release_held_button()
-                self._press_held_button("right", now)
-            elif self._held_button == "right" and smirk_diff > self.smirk_trigger_diff:
-                self._release_held_button()
-                self._press_held_button("left", now)
+            # Holding -- check for release or side switch.
+            if self._held_button == "left":
+                # Pucker fired left. Release on pucker drop.
+                if not puff_active:
+                    self._release_held_button()
+                    self._click_armed = True
+                    return
+                # Side switch: tuck strongly active while pucker lingers.
+                if tuck_trigger:
+                    self._release_held_button()
+                    self._press_held_button("right", now)
+            else:  # right
+                if not tuck_active:
+                    self._release_held_button()
+                    self._click_armed = True
+                    return
+                if puff_trigger:
+                    self._release_held_button()
+                    self._press_held_button("left", now)
             return
 
-        # No button held and click armed: check for fresh trigger.
-        if smirk_diff > self.smirk_trigger_diff:
+        # No button held + click armed: check for fresh trigger. Pucker
+        # checked first since the puff and tuck blendshapes are physically
+        # incompatible -- only one can realistically be at trigger level.
+        if puff_trigger:
             self._press_held_button("left", now)
             self._click_armed = False
-        elif (-smirk_diff) > self.smirk_trigger_diff:
+        elif tuck_trigger:
             self._press_held_button("right", now)
             self._click_armed = False
 
@@ -244,65 +278,38 @@ class GestureController:
             if previous_speed is not None:
                 self.cursor.scroll_units_per_sec = previous_speed
 
-    def _handle_puff_scroll_down(self, blendshapes: Dict[str, float], now: float) -> None:
-        cp = puff_value(blendshapes)
+    def _handle_smirk_scroll(self, smirk_diff: float, now: float) -> None:
+        abs_diff = abs(smirk_diff)
 
-        if cp <= self.cheek_puff_release:
-            self._puff_intent_started_at = None
-            if self.active_scroll_gesture == "scroll_down":
+        if abs_diff <= self.smirk_relax_diff:
+            self._smirk_scroll_intent_started_at = None
+            if self.active_scroll_gesture in ("scroll_up", "scroll_down"):
                 self.active_scroll_gesture = None
             return
 
-        if cp <= self.cheek_puff_down_low:
-            # Hysteresis dead-zone: preserve state, no tick.
+        # Past relax threshold: candidate scroll, gated by intent buffer.
+        if self._smirk_scroll_intent_started_at is None:
+            self._smirk_scroll_intent_started_at = now
+            return
+        if (now - self._smirk_scroll_intent_started_at) < self.scroll_intent_delay_sec:
             return
 
-        if self._puff_intent_started_at is None:
-            self._puff_intent_started_at = now
-            return
-        if (now - self._puff_intent_started_at) < self.scroll_intent_delay_sec:
-            return
+        # Direction: smirk LEFT (positive diff) -> scroll UP; smirk RIGHT -> scroll DOWN.
+        if smirk_diff > 0:
+            direction = "up"
+            self.active_scroll_gesture = "scroll_up"
+        else:
+            direction = "down"
+            self.active_scroll_gesture = "scroll_down"
 
-        self.active_scroll_gesture = "scroll_down"
         speed = _lerp(
-            cp,
-            self.cheek_puff_down_low,
-            self.cheek_puff_down_high,
+            abs_diff,
+            self.smirk_relax_diff,
+            self.smirk_trigger_diff,
             self.scroll_min_units_per_sec,
             self.scroll_max_units_per_sec,
         )
-        self._emit_scroll_tick("down", speed, now)
-
-    def _handle_tuck_scroll_up(self, blendshapes: Dict[str, float], now: float) -> None:
-        raw = tuck_value(blendshapes)
-        tv = raw - self.tuck_baseline
-        if tv < 0.0:
-            tv = 0.0
-
-        if tv <= self.tuck_release:
-            self._tuck_intent_started_at = None
-            if self.active_scroll_gesture == "scroll_up":
-                self.active_scroll_gesture = None
-            return
-
-        if tv <= self.tuck_trigger_low:
-            return
-
-        if self._tuck_intent_started_at is None:
-            self._tuck_intent_started_at = now
-            return
-        if (now - self._tuck_intent_started_at) < self.scroll_intent_delay_sec:
-            return
-
-        self.active_scroll_gesture = "scroll_up"
-        speed = _lerp(
-            tv,
-            self.tuck_trigger_low,
-            self.tuck_trigger_high,
-            self.scroll_min_units_per_sec,
-            self.scroll_max_units_per_sec,
-        )
-        self._emit_scroll_tick("up", speed, now)
+        self._emit_scroll_tick(direction, speed, now)
 
     # ---------------------------------------------------------------- public API
 
@@ -311,25 +318,26 @@ class GestureController:
         self._click_armed = True
         self._last_click_side = None
         self._last_click_consumed = False
-        self._puff_intent_started_at = None
-        self._tuck_intent_started_at = None
+        self._smirk_scroll_intent_started_at = None
         self._scroll_last_tick_at = 0.0
         self.active_scroll_gesture = None
-        self._smirk_active = False
 
     def handle_face_analysis(self, face_analysis, now: float) -> None:
         blendshapes = face_analysis.blendshapes or {}
 
-        # --- Smirk + cursor freeze + click-and-hold ---
-        adj_left, adj_right = self._adjusted_smirk(blendshapes)
-        smirk_diff = adj_left - adj_right
-        self._smirk_active = abs(smirk_diff) >= self.smirk_relax_diff
-
-        held_long_enough = (
+        # --- Click signals (lips) ---
+        puff = self._adjusted_puff(blendshapes)
+        tuck = self._adjusted_tuck(blendshapes)
+        # Cursor freeze: applies during the ramp-up to a click trigger and
+        # for the first click_hold_unfreeze_sec after the button presses.
+        # After that we unfreeze so the user can drag/draw with the button held.
+        gesture_starting = (puff >= self.cheek_puff_release or tuck >= self.tuck_release) \
+            and self._held_button is None
+        held_recently = (
             self._held_button is not None
-            and (now - self._held_started_at) >= self.click_hold_unfreeze_sec
+            and (now - self._held_started_at) < self.click_hold_unfreeze_sec
         )
-        cursor_frozen = self._smirk_active and not held_long_enough
+        cursor_frozen = gesture_starting or held_recently
 
         if face_analysis.screen_position is not None and not cursor_frozen:
             raw_tx, raw_ty = face_analysis.screen_position
@@ -338,9 +346,8 @@ class GestureController:
             self.cursor.step_towards(target_x, target_y)
 
         if self.click_enabled:
-            self._handle_smirk_click_or_hold(smirk_diff, now)
+            self._handle_lip_click_or_hold(puff, tuck, now)
         elif self._held_button is not None:
-            # Clicks just disabled mid-hold; release cleanly.
             self._release_held_button()
             self._click_armed = True
 
@@ -350,13 +357,12 @@ class GestureController:
         elif self._last_click_side is not None:
             self._last_click_consumed = True
 
-        # --- Scroll: two independent lip gestures ---
+        # --- Scroll signal (smirk) ---
         if self.scroll_enabled:
-            self._handle_puff_scroll_down(blendshapes, now)
-            self._handle_tuck_scroll_up(blendshapes, now)
+            adj_left, adj_right = self._adjusted_smirk(blendshapes)
+            self._handle_smirk_scroll(adj_left - adj_right, now)
         else:
-            self._puff_intent_started_at = None
-            self._tuck_intent_started_at = None
+            self._smirk_scroll_intent_started_at = None
             self.active_scroll_gesture = None
 
     def shutdown(self) -> None:

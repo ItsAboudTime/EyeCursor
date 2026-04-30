@@ -23,10 +23,10 @@ from src.ui.visualizer.drawing import (
 
 
 _GESTURE_ACTION_LABEL = {
-    "left_click_down": "Left smirk -> left click",
-    "right_click_down": "Right smirk -> right click",
-    "scroll_up": "Cheek puff (excessive) -> scroll up",
-    "scroll_down": "Cheek puff (mild) -> scroll down",
+    "left_click_down": "Pucker lips -> left click",
+    "right_click_down": "Tuck lips in -> right click",
+    "scroll_up": "Smirk left -> scroll up",
+    "scroll_down": "Smirk right -> scroll down",
 }
 
 

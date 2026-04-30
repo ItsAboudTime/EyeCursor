@@ -47,6 +47,7 @@ def _build_gesture_controller(cursor, gesture_calib: Optional[dict]) -> GestureC
             cheek_puff_down_low=gesture_calib.get("cheek_puff_down_low", CHEEK_PUFF_DOWN_LOW),
             cheek_puff_down_high=gesture_calib.get("cheek_puff_down_high", CHEEK_PUFF_DOWN_HIGH),
             cheek_puff_up_high=gesture_calib.get("cheek_puff_up_high", CHEEK_PUFF_UP_HIGH),
+            cheek_puff_baseline=gesture_calib.get("cheek_puff_baseline", 0.0),
             scroll_intent_delay_sec=gesture_calib.get("scroll_intent_delay_sec", SCROLL_INTENT_DELAY_SEC),
             scroll_min_units_per_sec=gesture_calib.get("scroll_min_units_per_sec", SCROLL_MIN_UNITS_PER_SEC),
             scroll_max_units_per_sec=gesture_calib.get("scroll_max_units_per_sec", SCROLL_MAX_UNITS_PER_SEC),

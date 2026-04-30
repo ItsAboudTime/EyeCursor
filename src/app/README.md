@@ -17,7 +17,7 @@ EyeCursor is a cross-platform desktop application that lets users control the mo
 - **One-Camera Head Pose Mode** -- Move the cursor by turning your head using a single webcam.
 - **Two-Camera Stereo Mode** -- Stereo depth-enhanced head tracking with two webcams.
 - **Eye-Gaze Mode** -- Control the cursor by looking at screen targets using gaze estimation (ETH-XGaze).
-- **Facial Gesture Controls** -- Left smirk presses & holds the left mouse button; right smirk presses & holds the right mouse button (brief = single click, sustained past 0.5 s = drag/draw). Cheek puff scrolls down; lip tuck-in scrolls up. Smirks are detected via `mouthSmileLeft` / `mouthSmileRight`; puff intensity uses `max(cheekPuff, mouthPucker)` (MediaPipe's cheekPuff alone is unreliable); lip tuck uses `max(mouthRollUpper, mouthRollLower, mouthPressLeft, mouthPressRight)`.
+- **Facial Gesture Controls** -- Pucker lips presses & holds the LEFT mouse button; tucking lips inward presses & holds the RIGHT mouse button (brief = single click, sustained past 0.5 s = drag/draw). Smirk LEFT scrolls up; smirk RIGHT scrolls down. Click gestures (lips) are robust while the head is turned; scroll gestures (smirks) are stable when looking straight at the screen. Puff intensity uses `max(cheekPuff, mouthPucker)` (MediaPipe's cheekPuff alone is unreliable); lip tuck uses `max(mouthRollUpper, mouthRollLower, mouthPressLeft, mouthPressRight)`; smirks use `mouthSmileLeft` / `mouthSmileRight`.
 - **User Profiles** -- Each user gets their own calibration data. Multiple users can share one machine.
 - **Calibration Wizards** -- Step-by-step guided calibration for head pose, facial gestures, stereo cameras, and gaze.
 - **Camera Discovery** -- Automatically detect and preview connected cameras.
@@ -218,10 +218,10 @@ Browse for the ETH-XGaze model weights file, then look at 9 on-screen targets an
 
 | Gesture | Action |
 |---------|--------|
-| Left smirk | Press & hold left mouse button (release on relax). Brief smirk = single click; sustained smirk past 0.5s = drag/draw |
-| Right smirk | Press & hold right mouse button (same hold/drag semantics) |
-| Cheek puff (lips outward) | Scroll down (speed proportional to intensity) |
-| Lip tuck-in (lips rolled inward or pressed together) | Scroll up (speed proportional to intensity) |
+| Pucker lips (lips outward, as if blowing) | Press & hold LEFT mouse button. Brief = single click; sustained past 0.5 s = drag/draw |
+| Tuck lips inward (rolled in or pressed together) | Press & hold RIGHT mouse button (same hold/drag semantics) |
+| Smirk LEFT (raise the LEFT side of your mouth) | Scroll up (speed proportional to intensity) |
+| Smirk RIGHT (raise the RIGHT side of your mouth) | Scroll down (speed proportional to intensity) |
 
 Cursor is briefly frozen during the first 0.5 s of a smirk, then unfreezes so you can drag while the button is held -- this is what enables drawing in paint apps.
 
