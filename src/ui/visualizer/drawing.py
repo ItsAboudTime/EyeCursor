@@ -25,8 +25,11 @@ def rgb_to_qpixmap(frame_rgb: np.ndarray) -> QPixmap:
 
 
 _MEDIAPIPE_LANDMARK_SUBSET = (
-    1, 4, 5, 6, 9, 10, 33, 61, 78, 105, 133, 145, 152, 159, 160, 168,
-    234, 263, 291, 308, 323, 362, 373, 374, 385, 386, 387, 454,
+    1,    # front
+    10,   # top
+    152,  # bottom
+    234,  # left
+    454,  # right
 )
 
 
@@ -37,7 +40,7 @@ def draw_mediapipe_landmarks(
     frame_height: int,
     subset_only: bool = True,
     color: Tuple[int, int, int] = (60, 220, 60),
-    radius: int = 2,
+    radius: int = 10,
 ) -> np.ndarray:
     out = frame_bgr.copy()
     pts = list(landmarks) if landmarks is not None else []
