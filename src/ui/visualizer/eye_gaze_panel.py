@@ -71,8 +71,18 @@ class EyeGazePanel(QWidget):
         grid.addWidget(_labeled("3. Normalized face patch + gaze vector", self._patch_label), 1, 0)
         grid.addWidget(_labeled("4. Screen target", self._target_label), 1, 1)
 
-        for r in range(2):
-            grid.setRowStretch(r, 1)
+        if self._show_bubble_indicator:
+            self._yaw_pitch_label = QLabel("Yaw: --  Pitch: --")
+            self._yaw_pitch_label.setStyleSheet("color: #dfe6e9; font-size: 12px;")
+            grid.addWidget(_labeled("5. Yaw / Pitch", self._yaw_pitch_label), 2, 0, 1, 2)
+
+        if self._show_bubble_indicator:
+            grid.setRowStretch(0, 1)
+            grid.setRowStretch(1, 1)
+            grid.setRowStretch(2, 0)
+        else:
+            for r in range(2):
+                grid.setRowStretch(r, 1)
         for c in range(2):
             grid.setColumnStretch(c, 1)
 
@@ -84,9 +94,6 @@ class EyeGazePanel(QWidget):
             self._bubble_label.setStyleSheet(
                 "color: #b2bec3; font-size: 12px; padding-left: 8px;"
             )
-
-        self._yaw_pitch_label = None
-
         self._gesture_box = None
         if not self._show_bubble_indicator:
             self._gesture_box = self._build_gesture_box()
