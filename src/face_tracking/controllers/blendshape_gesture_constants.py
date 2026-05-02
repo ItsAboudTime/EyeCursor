@@ -33,10 +33,4 @@ TUCK_TRIGGER_HIGH = 0.70
 # Anti-jitter: 200 ms intent buffer for both scroll directions.
 SCROLL_INTENT_DELAY_SEC = 0.20
 
-# Speed mapping for variable-rate scroll ticks. Tuned down from the original
-# 60-600 / 120-tick defaults because that combination scrolled an entire
-# screen in well under a second on typical apps -- way too fast.
-SCROLL_MIN_UNITS_PER_SEC = 20.0
-SCROLL_MAX_UNITS_PER_SEC = 200.0
-SCROLL_TICK_DELTA = 30
-SCROLL_MIN_TICK_INTERVAL_SEC = 0.05
+SCROLL_MIN_TICK_INTERVAL_SEC = 0.08

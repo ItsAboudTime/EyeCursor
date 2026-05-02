@@ -3,11 +3,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from src.face_tracking.controllers.blendshape_gesture_constants import (
-    SCROLL_INTENT_DELAY_SEC,
-    SCROLL_MAX_UNITS_PER_SEC,
-    SCROLL_MIN_UNITS_PER_SEC,
-)
+from src.face_tracking.controllers.blendshape_gesture_constants import SCROLL_INTENT_DELAY_SEC
 from src.face_tracking.providers.face_landmarks import FaceLandmarksProvider
 from src.face_tracking.signals.blendshapes import (
     compute_smirk_activations,
@@ -165,8 +161,6 @@ class FacialGestureCalibrationSession:
             "tuck_trigger_low": round(tuck_trigger_low, 4),
             "tuck_trigger_high": round(tuck_trigger_high, 4),
             "scroll_intent_delay_sec": SCROLL_INTENT_DELAY_SEC,
-            "scroll_min_units_per_sec": SCROLL_MIN_UNITS_PER_SEC,
-            "scroll_max_units_per_sec": SCROLL_MAX_UNITS_PER_SEC,
             "quality_score": round(quality_score, 3),
             "quality_label": quality_label,
             "created_at": datetime.now(timezone.utc).isoformat(),

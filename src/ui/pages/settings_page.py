@@ -47,7 +47,7 @@ class SettingsPage(QWidget):
         # realistic head/gaze tracking rate.
         self._move_speed = QSpinBox()
         self._move_speed.setRange(1, 10000)
-        self._move_speed.setValue(200)
+        self._move_speed.setValue(1000)
         self._move_speed.setSuffix(" px/sec")
         form.addRow("Move speed:", self._move_speed)
 
@@ -55,7 +55,7 @@ class SettingsPage(QWidget):
         # high-refresh-rate monitors and any reasonable webcam capture rate.
         self._frame_rate = QSpinBox()
         self._frame_rate.setRange(1, 240)
-        self._frame_rate.setValue(30)
+        self._frame_rate.setValue(60)
         self._frame_rate.setSuffix(" fps")
         form.addRow("Frame rate:", self._frame_rate)
 
@@ -88,7 +88,7 @@ class SettingsPage(QWidget):
         # Scroll speed: 1..10000 units/sec. Same logic as move speed.
         self._scroll_speed = QSpinBox()
         self._scroll_speed.setRange(1, 10000)
-        self._scroll_speed.setValue(300)
+        self._scroll_speed.setValue(20)
         self._scroll_speed.setSuffix(" units/sec")
         gestures_form.addRow("Scroll speed:", self._scroll_speed)
 

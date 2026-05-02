@@ -7,10 +7,7 @@ from src.face_tracking.controllers.blendshape_gesture_constants import (
     CHEEK_PUFF_UP_HIGH,
     CLICK_HOLD_UNFREEZE_SEC,
     SCROLL_INTENT_DELAY_SEC,
-    SCROLL_MAX_UNITS_PER_SEC,
     SCROLL_MIN_TICK_INTERVAL_SEC,
-    SCROLL_MIN_UNITS_PER_SEC,
-    SCROLL_TICK_DELTA,
     SMIRK_RELAX_DIFF,
     SMIRK_TRIGGER_DIFF,
     TUCK_RELEASE,
@@ -22,19 +19,6 @@ from src.face_tracking.signals.blendshapes import (
     puff_value,
     tuck_value,
 )
-
-
-def _lerp(value: float, in_low: float, in_high: float, out_low: float, out_high: float) -> float:
-    if in_high <= in_low:
-        return out_low
-    ratio = (value - in_low) / (in_high - in_low)
-    if ratio < 0.0:
-        ratio = 0.0
-    elif ratio > 1.0:
-        ratio = 1.0
-    return out_low + ratio * (out_high - out_low)
-
-
 class GestureController:
     """Maps face signals to cursor movement, click-and-hold actions, and smirk-driven scrolls.
 
@@ -86,9 +70,6 @@ class GestureController:
         tuck_trigger_high: float = TUCK_TRIGGER_HIGH,
         tuck_baseline: float = 0.0,
         scroll_intent_delay_sec: float = SCROLL_INTENT_DELAY_SEC,
-        scroll_min_units_per_sec: float = SCROLL_MIN_UNITS_PER_SEC,
-        scroll_max_units_per_sec: float = SCROLL_MAX_UNITS_PER_SEC,
-        scroll_tick_delta: int = SCROLL_TICK_DELTA,
         scroll_min_tick_interval_sec: float = SCROLL_MIN_TICK_INTERVAL_SEC,
     ) -> None:
         if smirk_trigger_diff <= 0.0:
@@ -114,10 +95,6 @@ class GestureController:
             raise ValueError("tuck_baseline must be >= 0")
         if scroll_intent_delay_sec < 0.0:
             raise ValueError("scroll_intent_delay_sec must be >= 0")
-        if scroll_min_units_per_sec <= 0.0 or scroll_max_units_per_sec < scroll_min_units_per_sec:
-            raise ValueError("scroll speed bounds invalid")
-        if scroll_tick_delta <= 0:
-            raise ValueError("scroll_tick_delta must be > 0")
         if scroll_min_tick_interval_sec < 0.0:
             raise ValueError("scroll_min_tick_interval_sec must be >= 0")
 
@@ -143,9 +120,6 @@ class GestureController:
         self.tuck_trigger_high = float(tuck_trigger_high)
         self.tuck_baseline = float(tuck_baseline)
         self.scroll_intent_delay_sec = float(scroll_intent_delay_sec)
-        self.scroll_min_units_per_sec = float(scroll_min_units_per_sec)
-        self.scroll_max_units_per_sec = float(scroll_max_units_per_sec)
-        self.scroll_tick_delta = int(scroll_tick_delta)
         self.scroll_min_tick_interval_sec = float(scroll_min_tick_interval_sec)
 
         self.click_enabled = True
@@ -161,6 +135,7 @@ class GestureController:
         # Scroll state
         self._smirk_scroll_intent_started_at: Optional[float] = None
         self._scroll_last_tick_at: float = 0.0
+        self._scroll_accumulator: float = 0.0
         self.active_scroll_gesture: Optional[str] = None  # 'scroll_up' | 'scroll_down' | None
 
     # ---------------------------------------------------------------- helpers
@@ -262,22 +237,33 @@ class GestureController:
     def _emit_scroll_tick(self, direction: str, speed: float, now: float) -> None:
         if (now - self._scroll_last_tick_at) < self.scroll_min_tick_interval_sec:
             return
+        if self._scroll_last_tick_at == 0.0:
+            elapsed = self.scroll_min_tick_interval_sec
+        else:
+            elapsed = now - self._scroll_last_tick_at
         self._scroll_last_tick_at = now
 
         clamped_speed = speed
-        if clamped_speed < self.scroll_min_units_per_sec:
-            clamped_speed = self.scroll_min_units_per_sec
-        elif clamped_speed > self.scroll_max_units_per_sec:
-            clamped_speed = self.scroll_max_units_per_sec
+        speed_limit = getattr(self.cursor, "scroll_units_per_sec", None)
+        if speed_limit is not None:
+            try:
+                limit_value = float(speed_limit)
+            except (TypeError, ValueError):
+                limit_value = None
+            if limit_value is not None and limit_value > 0.0:
+                clamped_speed = limit_value
 
-        previous_speed = getattr(self.cursor, "scroll_units_per_sec", None)
-        try:
-            self.cursor.scroll_units_per_sec = clamped_speed
-            delta = self.scroll_tick_delta if direction == "up" else -self.scroll_tick_delta
-            self.cursor.scroll_with_speed(delta)
-        finally:
-            if previous_speed is not None:
-                self.cursor.scroll_units_per_sec = previous_speed
+        units = clamped_speed * elapsed
+        if direction != "up":
+            units = -units
+        self._scroll_accumulator += units
+
+        if self._scroll_accumulator >= 1.0 or self._scroll_accumulator <= -1.0:
+            delta = int(self._scroll_accumulator)
+            self._scroll_accumulator -= delta
+            step = 1 if delta > 0 else -1
+            for _ in range(abs(delta)):
+                self.cursor.scroll(step)
 
     def _handle_smirk_scroll(self, smirk_diff: float, now: float) -> None:
         abs_diff = abs(smirk_diff)
@@ -286,11 +272,14 @@ class GestureController:
             self._smirk_scroll_intent_started_at = None
             if self.active_scroll_gesture in ("scroll_up", "scroll_down"):
                 self.active_scroll_gesture = None
+            self._scroll_accumulator = 0.0
+            self._scroll_last_tick_at = 0.0
             return
 
         # Past relax threshold: candidate scroll, gated by intent buffer.
         if self._smirk_scroll_intent_started_at is None:
             self._smirk_scroll_intent_started_at = now
+            self._scroll_last_tick_at = 0.0
             return
         if (now - self._smirk_scroll_intent_started_at) < self.scroll_intent_delay_sec:
             return
@@ -303,13 +292,11 @@ class GestureController:
             direction = "down"
             self.active_scroll_gesture = "scroll_down"
 
-        speed = _lerp(
-            abs_diff,
-            self.smirk_relax_diff,
-            self.smirk_trigger_diff,
-            self.scroll_min_units_per_sec,
-            self.scroll_max_units_per_sec,
-        )
+        speed_limit = getattr(self.cursor, "scroll_units_per_sec", None)
+        try:
+            speed = float(speed_limit)
+        except (TypeError, ValueError):
+            return
         self._emit_scroll_tick(direction, speed, now)
 
     # ---------------------------------------------------------------- public API
@@ -321,6 +308,7 @@ class GestureController:
         self._last_click_consumed = False
         self._smirk_scroll_intent_started_at = None
         self._scroll_last_tick_at = 0.0
+        self._scroll_accumulator = 0.0
         self.active_scroll_gesture = None
 
     def handle_face_analysis(self, face_analysis, now: float) -> None:
