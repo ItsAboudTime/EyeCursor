@@ -4,7 +4,6 @@ from typing import Dict, Iterable, Optional, Tuple
 BLENDSHAPE_KEYS = (
     "mouthSmileLeft",
     "mouthSmileRight",
-    "cheekPuff",
     "mouthPucker",
     "mouthRollUpper",
     "mouthRollLower",
@@ -46,22 +45,19 @@ def compute_smirk_activations(blendshapes: Dict[str, float]) -> Tuple[float, flo
     return left, right
 
 
-def puff_value(blendshapes: Dict[str, float]) -> float:
-    """Return cheek-puff intensity (used for scroll DOWN).
+def pucker_value(blendshapes: Dict[str, float]) -> float:
+    """Return mouth-pucker intensity (used to fire LEFT click).
 
-    MediaPipe's default ``cheekPuff`` is unreliable; ``mouthPucker`` (lips
-    pushed outward as if blowing) is the reliable proxy that co-activates
-    when the user puffs their cheeks. We take the max so a future model fix
-    to ``cheekPuff`` will still work.
+    Reads MediaPipe's ``mouthPucker`` blendshape directly. We intentionally
+    do NOT fall back to ``cheekPuff`` -- in MediaPipe's default model that
+    score is unreliable and adds noise; ``mouthPucker`` (lips pushed
+    outward, as if blowing/kissing) is the stable signal.
     """
-    return max(
-        float(blendshapes.get("cheekPuff", 0.0)),
-        float(blendshapes.get("mouthPucker", 0.0)),
-    )
+    return float(blendshapes.get("mouthPucker", 0.0))
 
 
 def tuck_value(blendshapes: Dict[str, float]) -> float:
-    """Return lip-tuck intensity (used for scroll UP).
+    """Return lip-tuck intensity (used to fire RIGHT click).
 
     Activates when the user tucks/rolls their lips inward or presses them
     firmly together. Uses the max of four MediaPipe blendshapes that all

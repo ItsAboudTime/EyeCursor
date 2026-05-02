@@ -14,13 +14,13 @@ import cv2
 
 from src.cursor import create_cursor
 from src.face_tracking.controllers.blendshape_gesture_constants import (
-    CHEEK_PUFF_DOWN_HIGH,
-    CHEEK_PUFF_RELEASE,
+    PUCKER_RELEASE,
+    PUCKER_TRIGGER_HIGH,
     TUCK_RELEASE,
     TUCK_TRIGGER_HIGH,
 )
 from src.face_tracking.pipelines.face_analysis import FaceAnalysisPipeline
-from src.face_tracking.signals.blendshapes import puff_value, tuck_value
+from src.face_tracking.signals.blendshapes import pucker_value, tuck_value
 
 
 def main():
@@ -48,14 +48,14 @@ def main():
         )
         if result is not None:
             blendshapes = result.blendshapes or {}
-            puff = puff_value(blendshapes)
+            pucker = pucker_value(blendshapes)
             tuck = tuck_value(blendshapes)
 
             if not click_armed:
-                if puff < CHEEK_PUFF_RELEASE and tuck < TUCK_RELEASE:
+                if pucker < PUCKER_RELEASE and tuck < TUCK_RELEASE:
                     click_armed = True
             else:
-                if puff > CHEEK_PUFF_DOWN_HIGH:
+                if pucker > PUCKER_TRIGGER_HIGH:
                     cur.left_click()
                     click_armed = False
                 elif tuck > TUCK_TRIGGER_HIGH:

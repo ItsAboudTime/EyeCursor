@@ -15,7 +15,7 @@ from src.face_tracking.controllers.gesture import GestureController
 from src.face_tracking.pipelines.face_analysis import FaceAnalysisPipeline
 from src.face_tracking.signals.blendshapes import (
     compute_smirk_activations,
-    puff_value,
+    pucker_value,
     tuck_value,
 )
 
@@ -256,7 +256,7 @@ class _HybridGazeHeadModeBase(TrackingMode):
 
         blendshapes = result.blendshapes or {}
         smirk_left, smirk_right = compute_smirk_activations(blendshapes)
-        cheek_puff = puff_value(blendshapes)
+        pucker = pucker_value(blendshapes)
         tuck = tuck_value(blendshapes)
 
         gesture_state = {
@@ -267,7 +267,7 @@ class _HybridGazeHeadModeBase(TrackingMode):
             "last_click_side": gesture_controller._last_click_side,
             "smirk_left_activation": smirk_left,
             "smirk_right_activation": smirk_right,
-            "cheek_puff_value": cheek_puff,
+            "pucker_value": pucker,
             "tuck_value": tuck,
             "held_button": gesture_controller._held_button,
             "is_held": gesture_controller._held_button is not None,

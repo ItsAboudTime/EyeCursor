@@ -2,7 +2,7 @@ from .blendshapes import (
     BLENDSHAPE_KEYS,
     compute_smirk_activations,
     extract_blendshapes,
-    puff_value,
+    pucker_value,
 )
 from .head_pose import HeadPoseSignalMapper
 from .wink import (
@@ -21,5 +21,5 @@ __all__ = [
     "compute_smirk_activations",
     "extract_blendshapes",
     "get_eye_aspect_ratios",
-    "puff_value",
+    "pucker_value",
 ]

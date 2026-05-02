@@ -24,9 +24,9 @@ STEPS = [
     ("left_smirk", "Smirk to the LEFT (raise the LEFT side of your mouth)."),
     ("right_smirk", "Smirk to the RIGHT (raise the RIGHT side of your mouth)."),
     (
-        "cheek_puff_max",
-        "Puff your cheeks and push your lips outward "
-        "(as if blowing) -- as fully as is comfortable.",
+        "pucker_max",
+        "Pucker your lips outward (as if blowing or kissing) -- "
+        "as fully as is comfortable.",
     ),
     (
         "tuck_in_max",
@@ -85,7 +85,7 @@ class FacialGestureCalibrationWizard(QDialog):
         self._preview_label.setStyleSheet("background: #2d3436; border-radius: 8px;")
         layout.addWidget(self._preview_label)
 
-        self._sample_label = QLabel("Smirk L=--  R=--   Puff=--   Tuck=--")
+        self._sample_label = QLabel("Smirk L=--  R=--   Pucker=--   Tuck=--")
         self._sample_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._sample_label.setStyleSheet("font-size: 14px; color: #b2bec3;")
         layout.addWidget(self._sample_label)
@@ -164,7 +164,7 @@ class FacialGestureCalibrationWizard(QDialog):
                 "relax": self._session.capture_relax,
                 "left_smirk": self._session.capture_left_smirk,
                 "right_smirk": self._session.capture_right_smirk,
-                "cheek_puff_max": self._session.capture_cheek_puff_max,
+                "pucker_max": self._session.capture_pucker_max,
                 "tuck_in_max": self._session.capture_tuck_in_max,
             }[step_name]
 
@@ -185,9 +185,9 @@ class FacialGestureCalibrationWizard(QDialog):
                 self._latest_sample = sample
 
         if self._latest_sample:
-            l, r, cp, tk = self._latest_sample
+            l, r, pk, tk = self._latest_sample
             self._sample_label.setText(
-                f"Smirk L={l:.3f}  R={r:.3f}   Puff={cp:.3f}   Tuck={tk:.3f}"
+                f"Smirk L={l:.3f}  R={r:.3f}   Pucker={pk:.3f}   Tuck={tk:.3f}"
             )
 
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

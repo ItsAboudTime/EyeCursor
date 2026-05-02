@@ -15,13 +15,14 @@ SMIRK_RELAX_DIFF = 0.15     # |left_activation - right_activation| must drop bel
 # drawing/dragging.
 CLICK_HOLD_UNFREEZE_SEC = 0.5
 
-# Cheek puff -> scroll DOWN
-CHEEK_PUFF_RELEASE = 0.25       # below this: fully idle, intent timer resets
-CHEEK_PUFF_DOWN_LOW = 0.30      # entering [low, high] starts the scroll-down intent buffer
-CHEEK_PUFF_DOWN_HIGH = 0.70     # at or above this: max-speed scroll down (saturates above)
-CHEEK_PUFF_UP_HIGH = 1.00       # legacy field kept for v3 calibration compat; unused in v4
+# Mouth pucker -> LEFT click (press & hold). Source: MediaPipe's mouthPucker
+# blendshape (lips pushed outward, as if blowing/kissing).
+PUCKER_RELEASE = 0.25       # below this: fully idle / button released
+PUCKER_TRIGGER_LOW = 0.30   # legacy field kept for compat; unused in v5
+PUCKER_TRIGGER_HIGH = 0.70  # at or above this: fire click / press button
+PUCKER_MAX = 1.00           # legacy field kept for compat; unused in v5
 
-# Lip tuck-in -> scroll UP. Default source is
+# Lip tuck-in -> RIGHT click. Default source is
 # max(mouthRollUpper, mouthRollLower, mouthPressLeft, mouthPressRight).
 # These blendshapes co-activate when the user rolls/tucks their lips inward
 # or presses them firmly together; they're MediaPipe's most reliable

@@ -8,7 +8,7 @@
   <b>Control your mouse cursor with head and eye movements.</b>
 </p>
 
-EyeCursor is a cross-platform desktop application that lets users control the mouse cursor using camera-based face and eye input. It supports multiple tracking modes, per-user calibration profiles, and click/scroll gestures via facial blendshapes (smirks and cheek puffs).
+EyeCursor is a cross-platform desktop application that lets users control the mouse cursor using camera-based face and eye input. It supports multiple tracking modes, per-user calibration profiles, and click/scroll gestures via facial blendshapes (lip pucker, lip tuck, and smirks).
 
 ---
 
@@ -17,7 +17,7 @@ EyeCursor is a cross-platform desktop application that lets users control the mo
 - **One-Camera Head Pose Mode** -- Move the cursor by turning your head using a single webcam.
 - **Two-Camera Stereo Mode** -- Stereo depth-enhanced head tracking with two webcams.
 - **Eye-Gaze Mode** -- Control the cursor by looking at screen targets using gaze estimation (ETH-XGaze).
-- **Facial Gesture Controls** -- Pucker lips presses & holds the LEFT mouse button; tucking lips inward presses & holds the RIGHT mouse button (brief = single click, sustained past 0.5 s = drag/draw). Smirk LEFT scrolls up; smirk RIGHT scrolls down. Click gestures (lips) are robust while the head is turned; scroll gestures (smirks) are stable when looking straight at the screen. Puff intensity uses `max(cheekPuff, mouthPucker)` (MediaPipe's cheekPuff alone is unreliable); lip tuck uses `max(mouthRollUpper, mouthRollLower, mouthPressLeft, mouthPressRight)`; smirks use `mouthSmileLeft` / `mouthSmileRight`.
+- **Facial Gesture Controls** -- Pucker lips presses & holds the LEFT mouse button; tucking lips inward presses & holds the RIGHT mouse button (brief = single click, sustained past 0.5 s = drag/draw). Smirk LEFT scrolls up; smirk RIGHT scrolls down. Click gestures (lips) are robust while the head is turned; scroll gestures (smirks) are stable when looking straight at the screen. Pucker intensity uses MediaPipe's `mouthPucker` blendshape (we deliberately do not use `cheekPuff`, which is unreliable in MediaPipe's default model); lip tuck uses `max(mouthRollUpper, mouthRollLower, mouthPressLeft, mouthPressRight)`; smirks use `mouthSmileLeft` / `mouthSmileRight`.
 - **User Profiles** -- Each user gets their own calibration data. Multiple users can share one machine.
 - **Calibration Wizards** -- Step-by-step guided calibration for head pose, facial gestures, stereo cameras, and gaze.
 - **Camera Discovery** -- Automatically detect and preview connected cameras.
@@ -197,7 +197,7 @@ Look at 9 on-screen targets and press **Capture** at each position. This maps yo
 
 #### Facial Gesture Calibration
 
-Follow 5 prompts: relax your face, smirk left, smirk right, puff your cheeks out as much as is comfortable, and tuck your lips inward (roll/press them together). This sets personalized thresholds for click and scroll gestures based on your natural blendshape range.
+Follow 5 prompts: relax your face, smirk left, smirk right, pucker your lips outward as fully as is comfortable, and tuck your lips inward (roll/press them together). This sets personalized thresholds for click and scroll gestures based on your natural blendshape range.
 
 #### Stereo Calibration (Two-Camera Mode only)
 
@@ -250,7 +250,7 @@ Click **Settings** in the sidebar to adjust:
 
 - **Cursor Speed** -- How fast the cursor moves relative to head/gaze movement.
 - **Frame Rate** -- Camera capture rate (higher = smoother but more CPU).
-- **Scroll Speed** -- Default scroll speed cap (units per second) for cheek-puff scrolls.
+- **Scroll Speed** -- Default scroll speed cap (units per second) for smirk-driven scrolls.
 - **EMA Smoothing** -- Smoothing factor for cursor movement (lower = smoother, higher = more responsive).
 
 ---
@@ -276,5 +276,5 @@ Click **Settings** in the sidebar to adjust:
 - Ensure adequate lighting.
 
 **Facial gestures not registering:**
-- Redo facial gesture calibration. Capture distinct, exaggerated samples (clear left/right smirks, full cheek puff) so the per-user thresholds land in a reachable range.
+- Redo facial gesture calibration. Capture distinct, exaggerated samples (clear left/right smirks, full pucker, full lip-tuck) so the per-user thresholds land in a reachable range.
 - Glasses, facial hair, or strong sidelight on one cheek can depress blendshape scores -- adjust lighting and recalibrate.

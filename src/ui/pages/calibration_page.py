@@ -134,7 +134,7 @@ class CalibrationPage(QWidget):
             ("one_camera_head_pose", "Head Pose Calibration",
              "Maps head movement to cursor position. Required for one-camera and two-camera modes."),
             ("eye_gestures", "Facial Gesture Calibration",
-             "Calibrates smirk and cheek-puff thresholds for clicks and scrolling."),
+             "Calibrates smirk, pucker, and lip-tuck thresholds for clicks and scrolling."),
             ("stereo", "Stereo Calibration",
              "Calibrates two cameras for stereo depth. Required for two-camera mode."),
             ("eye_gaze", "Gaze Calibration",

@@ -21,7 +21,7 @@ from src.face_tracking.pipelines.stereo_face_analysis import (
 )
 from src.face_tracking.signals.blendshapes import (
     compute_smirk_activations,
-    puff_value,
+    pucker_value,
     tuck_value,
 )
 
@@ -70,7 +70,7 @@ class TwoCameraHeadPoseMode(TrackingMode):
     display_name = "Two-Camera Head Pose"
     description = (
         "Stereo head tracking with depth estimation. "
-        "Smirks for clicks; cheek puffs for scrolls. Requires two cameras and stereo calibration."
+        "Lip gestures for clicks; smirks for scrolls. Requires two cameras and stereo calibration."
     )
     required_camera_count = 2
     requires_head_pose_calibration = True
@@ -251,7 +251,7 @@ class TwoCameraHeadPoseMode(TrackingMode):
 
         blendshapes = result.blendshapes or {}
         smirk_left, smirk_right = compute_smirk_activations(blendshapes)
-        cheek_puff = puff_value(blendshapes)
+        pucker = pucker_value(blendshapes)
         tuck = tuck_value(blendshapes)
 
         gesture_state = {
@@ -262,7 +262,7 @@ class TwoCameraHeadPoseMode(TrackingMode):
             "last_click_side": gesture_controller._last_click_side,
             "smirk_left_activation": smirk_left,
             "smirk_right_activation": smirk_right,
-            "cheek_puff_value": cheek_puff,
+            "pucker_value": pucker,
             "tuck_value": tuck,
             "held_button": gesture_controller._held_button,
             "is_held": gesture_controller._held_button is not None,

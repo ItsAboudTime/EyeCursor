@@ -7,10 +7,10 @@ from src.core.devices.camera_identity import warn_if_single_camera_mismatch
 from src.core.modes._viz_helpers import derive_last_action
 from src.core.modes.base import TrackingMode
 from src.face_tracking.controllers.blendshape_gesture_constants import (
-    CHEEK_PUFF_DOWN_HIGH,
-    CHEEK_PUFF_DOWN_LOW,
-    CHEEK_PUFF_RELEASE,
-    CHEEK_PUFF_UP_HIGH,
+    PUCKER_MAX,
+    PUCKER_RELEASE,
+    PUCKER_TRIGGER_HIGH,
+    PUCKER_TRIGGER_LOW,
     SCROLL_INTENT_DELAY_SEC,
     SMIRK_RELAX_DIFF,
     SMIRK_TRIGGER_DIFF,
@@ -22,7 +22,7 @@ from src.face_tracking.controllers.gesture import GestureController
 from src.face_tracking.pipelines.face_analysis import FaceAnalysisPipeline
 from src.face_tracking.signals.blendshapes import (
     compute_smirk_activations,
-    puff_value,
+    pucker_value,
     tuck_value,
 )
 
@@ -30,7 +30,7 @@ from src.face_tracking.signals.blendshapes import (
 _VIZ_MIN_INTERVAL = 1.0 / 15.0
 
 
-_CURRENT_GESTURE_CALIB_VERSION = 4
+_CURRENT_GESTURE_CALIB_VERSION = 5
 
 
 def _apply_cursor_settings(cursor, settings: dict) -> None:
@@ -63,7 +63,7 @@ def _apply_gesture_settings(gesture_controller, settings: dict) -> None:
 
 
 def _build_gesture_controller(cursor, gesture_calib: Optional[dict]) -> GestureController:
-    """Construct the gesture controller, honoring v4 calibration if present."""
+    """Construct the gesture controller, honoring v5 calibration if present."""
     if gesture_calib and gesture_calib.get("version") == _CURRENT_GESTURE_CALIB_VERSION:
         return GestureController(
             cursor=cursor,
@@ -71,11 +71,11 @@ def _build_gesture_controller(cursor, gesture_calib: Optional[dict]) -> GestureC
             smirk_relax_diff=gesture_calib.get("smirk_relax_diff", SMIRK_RELAX_DIFF),
             smirk_baseline_left=gesture_calib.get("smirk_baseline_left", 0.0),
             smirk_baseline_right=gesture_calib.get("smirk_baseline_right", 0.0),
-            cheek_puff_release=gesture_calib.get("cheek_puff_release", CHEEK_PUFF_RELEASE),
-            cheek_puff_down_low=gesture_calib.get("cheek_puff_down_low", CHEEK_PUFF_DOWN_LOW),
-            cheek_puff_down_high=gesture_calib.get("cheek_puff_down_high", CHEEK_PUFF_DOWN_HIGH),
-            cheek_puff_up_high=gesture_calib.get("cheek_puff_up_high", CHEEK_PUFF_UP_HIGH),
-            cheek_puff_baseline=gesture_calib.get("cheek_puff_baseline", 0.0),
+            pucker_release=gesture_calib.get("pucker_release", PUCKER_RELEASE),
+            pucker_trigger_low=gesture_calib.get("pucker_trigger_low", PUCKER_TRIGGER_LOW),
+            pucker_trigger_high=gesture_calib.get("pucker_trigger_high", PUCKER_TRIGGER_HIGH),
+            pucker_max=gesture_calib.get("pucker_max", PUCKER_MAX),
+            pucker_baseline=gesture_calib.get("pucker_baseline", 0.0),
             scroll_intent_delay_sec=gesture_calib.get("scroll_intent_delay_sec", SCROLL_INTENT_DELAY_SEC),
             tuck_release=gesture_calib.get("tuck_release", TUCK_RELEASE),
             tuck_trigger_low=gesture_calib.get("tuck_trigger_low", TUCK_TRIGGER_LOW),
@@ -85,7 +85,7 @@ def _build_gesture_controller(cursor, gesture_calib: Optional[dict]) -> GestureC
     if gesture_calib is not None:
         print(
             "[gesture] eye_gestures calibration is from a previous version; "
-            "using default smirk/puff/tuck thresholds (no baseline subtraction). "
+            "using default smirk/pucker/tuck thresholds (no baseline subtraction). "
             "Please recalibrate for best results."
         )
     return GestureController(cursor=cursor)
@@ -96,7 +96,7 @@ class OneCameraHeadPoseMode(TrackingMode):
     display_name = "One-Camera Head Pose"
     description = (
         "Control the cursor with head movement using one webcam. "
-        "Smirks for clicks; cheek puffs for scrolls."
+        "Lip gestures for clicks; smirks for scrolls."
     )
     required_camera_count = 1
     requires_head_pose_calibration = True
@@ -243,7 +243,7 @@ class OneCameraHeadPoseMode(TrackingMode):
 
         blendshapes = result.blendshapes or {}
         smirk_left, smirk_right = compute_smirk_activations(blendshapes)
-        cheek_puff = puff_value(blendshapes)
+        pucker = pucker_value(blendshapes)
         tuck = tuck_value(blendshapes)
 
         gesture_state = {
@@ -254,7 +254,7 @@ class OneCameraHeadPoseMode(TrackingMode):
             "last_click_side": gesture_controller._last_click_side,
             "smirk_left_activation": smirk_left,
             "smirk_right_activation": smirk_right,
-            "cheek_puff_value": cheek_puff,
+            "pucker_value": pucker,
             "tuck_value": tuck,
             "held_button": gesture_controller._held_button,
             "is_held": gesture_controller._held_button is not None,

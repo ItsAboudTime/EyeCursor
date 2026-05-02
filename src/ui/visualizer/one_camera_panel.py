@@ -121,7 +121,7 @@ class OneCameraPanel(QWidget):
         self._last_click_label = QLabel("Last click: --")
         self._smirk_left_label = QLabel("Smirk L: --")
         self._smirk_right_label = QLabel("Smirk R: --")
-        self._cheek_puff_label = QLabel("Cheek puff: --")
+        self._pucker_label = QLabel("Pucker: --")
         self._tuck_label = QLabel("Tuck: --")
         self._scroll_state_label = QLabel("Scroll state: idle")
         self._click_state_label = QLabel("Click state: armed")
@@ -130,7 +130,7 @@ class OneCameraPanel(QWidget):
             self._last_click_label,
             self._smirk_left_label,
             self._smirk_right_label,
-            self._cheek_puff_label,
+            self._pucker_label,
             self._tuck_label,
             self._click_state_label,
             self._scroll_state_label,
@@ -241,15 +241,15 @@ class OneCameraPanel(QWidget):
         self._last_click_label.setText(f"Last click: {last_click if last_click else '--'}")
         smirk_l = gesture_state.get("smirk_left_activation")
         smirk_r = gesture_state.get("smirk_right_activation")
-        cheek_puff = gesture_state.get("cheek_puff_value")
+        pucker = gesture_state.get("pucker_value")
         self._smirk_left_label.setText(
             f"Smirk L: {smirk_l:.3f}" if smirk_l is not None else "Smirk L: --"
         )
         self._smirk_right_label.setText(
             f"Smirk R: {smirk_r:.3f}" if smirk_r is not None else "Smirk R: --"
         )
-        self._cheek_puff_label.setText(
-            f"Cheek puff: {cheek_puff:.3f}" if cheek_puff is not None else "Cheek puff: --"
+        self._pucker_label.setText(
+            f"Pucker: {pucker:.3f}" if pucker is not None else "Pucker: --"
         )
         tuck = gesture_state.get("tuck_value")
         self._tuck_label.setText(

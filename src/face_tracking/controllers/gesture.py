@@ -1,11 +1,11 @@
 from typing import Dict, Optional, Tuple
 
 from src.face_tracking.controllers.blendshape_gesture_constants import (
-    CHEEK_PUFF_DOWN_HIGH,
-    CHEEK_PUFF_DOWN_LOW,
-    CHEEK_PUFF_RELEASE,
-    CHEEK_PUFF_UP_HIGH,
     CLICK_HOLD_UNFREEZE_SEC,
+    PUCKER_MAX,
+    PUCKER_RELEASE,
+    PUCKER_TRIGGER_HIGH,
+    PUCKER_TRIGGER_LOW,
     SCROLL_INTENT_DELAY_SEC,
     SCROLL_MIN_TICK_INTERVAL_SEC,
     SMIRK_RELAX_DIFF,
@@ -16,14 +16,14 @@ from src.face_tracking.controllers.blendshape_gesture_constants import (
 )
 from src.face_tracking.signals.blendshapes import (
     compute_smirk_activations,
-    puff_value,
+    pucker_value,
     tuck_value,
 )
 class GestureController:
     """Maps face signals to cursor movement, click-and-hold actions, and smirk-driven scrolls.
 
     Gesture map:
-      - Pucker lips (cheekPuff/mouthPucker proxy) -> press & hold LEFT mouse button
+      - Pucker lips (mouthPucker) -> press & hold LEFT mouse button
       - Tuck lips inward (mouthRoll/mouthPress proxy) -> press & hold RIGHT mouse button
       - Smirk LEFT (mouthSmileLeft > mouthSmileRight) -> scroll UP
       - Smirk RIGHT (mouthSmileRight > mouthSmileLeft) -> scroll DOWN
@@ -47,9 +47,9 @@ class GestureController:
     smirk scrolls -- the user is presumably looking at content.
 
     Asymmetric faces: ``smirk_baseline_left`` / ``smirk_baseline_right``
-    and ``tuck_baseline`` / ``cheek_puff_baseline`` capture the user's
-    natural at-rest activations from calibration. The runtime subtracts
-    these so an asymmetric resting face reads as zero across all signals.
+    and ``tuck_baseline`` / ``pucker_baseline`` capture the user's natural
+    at-rest activations from calibration. The runtime subtracts these so
+    an asymmetric resting face reads as zero across all signals.
     """
 
     def __init__(
@@ -60,11 +60,11 @@ class GestureController:
         smirk_baseline_left: float = 0.0,
         smirk_baseline_right: float = 0.0,
         click_hold_unfreeze_sec: float = CLICK_HOLD_UNFREEZE_SEC,
-        cheek_puff_release: float = CHEEK_PUFF_RELEASE,
-        cheek_puff_down_low: float = CHEEK_PUFF_DOWN_LOW,
-        cheek_puff_down_high: float = CHEEK_PUFF_DOWN_HIGH,
-        cheek_puff_up_high: float = CHEEK_PUFF_UP_HIGH,
-        cheek_puff_baseline: float = 0.0,
+        pucker_release: float = PUCKER_RELEASE,
+        pucker_trigger_low: float = PUCKER_TRIGGER_LOW,
+        pucker_trigger_high: float = PUCKER_TRIGGER_HIGH,
+        pucker_max: float = PUCKER_MAX,
+        pucker_baseline: float = 0.0,
         tuck_release: float = TUCK_RELEASE,
         tuck_trigger_low: float = TUCK_TRIGGER_LOW,
         tuck_trigger_high: float = TUCK_TRIGGER_HIGH,
@@ -80,13 +80,13 @@ class GestureController:
             raise ValueError("smirk baselines must be >= 0")
         if click_hold_unfreeze_sec < 0.0:
             raise ValueError("click_hold_unfreeze_sec must be >= 0")
-        if not (0.0 <= cheek_puff_release < cheek_puff_down_low < cheek_puff_down_high <= cheek_puff_up_high):
+        if not (0.0 <= pucker_release < pucker_trigger_low < pucker_trigger_high <= pucker_max):
             raise ValueError(
-                "cheek_puff thresholds must satisfy: "
-                "0 <= release < down_low < down_high <= up_high"
+                "pucker thresholds must satisfy: "
+                "0 <= release < trigger_low < trigger_high <= max"
             )
-        if cheek_puff_baseline < 0.0:
-            raise ValueError("cheek_puff_baseline must be >= 0")
+        if pucker_baseline < 0.0:
+            raise ValueError("pucker_baseline must be >= 0")
         if not (0.0 <= tuck_release < tuck_trigger_low < tuck_trigger_high):
             raise ValueError(
                 "tuck thresholds must satisfy: 0 <= release < trigger_low < trigger_high"
@@ -110,11 +110,11 @@ class GestureController:
         self.smirk_baseline_left = float(smirk_baseline_left)
         self.smirk_baseline_right = float(smirk_baseline_right)
         self.click_hold_unfreeze_sec = float(click_hold_unfreeze_sec)
-        self.cheek_puff_release = float(cheek_puff_release)
-        self.cheek_puff_down_low = float(cheek_puff_down_low)
-        self.cheek_puff_down_high = float(cheek_puff_down_high)
-        self.cheek_puff_up_high = float(cheek_puff_up_high)
-        self.cheek_puff_baseline = float(cheek_puff_baseline)
+        self.pucker_release = float(pucker_release)
+        self.pucker_trigger_low = float(pucker_trigger_low)
+        self.pucker_trigger_high = float(pucker_trigger_high)
+        self.pucker_max = float(pucker_max)
+        self.pucker_baseline = float(pucker_baseline)
         self.tuck_release = float(tuck_release)
         self.tuck_trigger_low = float(tuck_trigger_low)
         self.tuck_trigger_high = float(tuck_trigger_high)
@@ -150,9 +150,9 @@ class GestureController:
             adj_right = 0.0
         return adj_left, adj_right
 
-    def _adjusted_puff(self, blendshapes: Dict[str, float]) -> float:
-        raw = puff_value(blendshapes)
-        v = raw - self.cheek_puff_baseline
+    def _adjusted_pucker(self, blendshapes: Dict[str, float]) -> float:
+        raw = pucker_value(blendshapes)
+        v = raw - self.pucker_baseline
         return v if v > 0.0 else 0.0
 
     def _adjusted_tuck(self, blendshapes: Dict[str, float]) -> float:
@@ -182,21 +182,21 @@ class GestureController:
 
     # ---------------------------------------------------------------- click
 
-    def _handle_lip_click_or_hold(self, puff: float, tuck: float, now: float) -> None:
-        # Use the calibrated *_down_high / *_trigger_high as the click-trigger
-        # point (~78% of user max) and *_release (~20% of user max) as the
+    def _handle_lip_click_or_hold(self, pucker: float, tuck: float, now: float) -> None:
+        # Use the calibrated *_trigger_high as the click-trigger point
+        # (~78% of user max) and *_release (~20% of user max) as the
         # button-release point. This gives natural hysteresis: a deliberate
         # gesture is required to fire, and a clear relaxation is required to
         # release the button.
-        puff_active = puff >= self.cheek_puff_release
+        pucker_active = pucker >= self.pucker_release
         tuck_active = tuck >= self.tuck_release
-        puff_trigger = puff >= self.cheek_puff_down_high
+        pucker_trigger = pucker >= self.pucker_trigger_high
         tuck_trigger = tuck >= self.tuck_trigger_high
 
         # Re-arm: no button held + previous click already fired + user has
         # released both gestures.
         if self._held_button is None and not self._click_armed:
-            if not puff_active and not tuck_active:
+            if not pucker_active and not tuck_active:
                 self._click_armed = True
             return
 
@@ -204,7 +204,7 @@ class GestureController:
             # Holding -- check for release or side switch.
             if self._held_button == "left":
                 # Pucker fired left. Release on pucker drop.
-                if not puff_active:
+                if not pucker_active:
                     self._release_held_button()
                     self._click_armed = True
                     return
@@ -217,15 +217,15 @@ class GestureController:
                     self._release_held_button()
                     self._click_armed = True
                     return
-                if puff_trigger:
+                if pucker_trigger:
                     self._release_held_button()
                     self._press_held_button("left", now)
             return
 
         # No button held + click armed: check for fresh trigger. Pucker
-        # checked first since the puff and tuck blendshapes are physically
+        # checked first since the pucker and tuck blendshapes are physically
         # incompatible -- only one can realistically be at trigger level.
-        if puff_trigger:
+        if pucker_trigger:
             self._press_held_button("left", now)
             self._click_armed = False
         elif tuck_trigger:
@@ -315,7 +315,7 @@ class GestureController:
         blendshapes = face_analysis.blendshapes or {}
 
         # --- Click signals (lips) ---
-        puff = self._adjusted_puff(blendshapes)
+        pucker = self._adjusted_pucker(blendshapes)
         tuck = self._adjusted_tuck(blendshapes)
         # Cursor freeze: only for the first click_hold_unfreeze_sec after the
         # button presses, so the press lands on a stable target before drag.
@@ -333,7 +333,7 @@ class GestureController:
             self.cursor.step_towards(target_x, target_y)
 
         if self.click_enabled:
-            self._handle_lip_click_or_hold(puff, tuck, now)
+            self._handle_lip_click_or_hold(pucker, tuck, now)
         elif self._held_button is not None:
             self._release_held_button()
             self._click_armed = True
