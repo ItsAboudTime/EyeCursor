@@ -4,7 +4,6 @@ from typing import Dict, Iterable, Optional, Tuple
 from src.face_tracking.providers.face_landmarks import FaceLandmarksProvider
 from src.face_tracking.signals.blendshapes import extract_blendshapes
 from src.face_tracking.signals.head_pose import HeadPoseSignalMapper
-from src.face_tracking.signals.wink import detect_wink_direction, get_eye_aspect_ratios
 
 
 @dataclass
@@ -12,9 +11,6 @@ class FaceAnalysisResult:
     landmarks: Iterable
     screen_position: Optional[Tuple[int, int]]
     angles: Optional[Tuple[float, float]]
-    wink_direction: Optional[str]
-    left_eye_ratio: Optional[float] = None
-    right_eye_ratio: Optional[float] = None
     facial_transformation_matrix: Optional[object] = None
     depth: Optional[float] = None
     blendshapes: Optional[Dict[str, float]] = None
@@ -72,17 +68,11 @@ class FaceAnalysisPipeline:
             screen_position = None
             angles = None
 
-        left_eye_ratio, right_eye_ratio = get_eye_aspect_ratios(landmarks)
-        wink_direction = detect_wink_direction(landmarks)
-
         return FaceAnalysisResult(
             landmarks=landmarks,
             facial_transformation_matrix=facial_transformation_matrix,
             screen_position=screen_position,
             angles=angles,
-            wink_direction=wink_direction,
-            left_eye_ratio=left_eye_ratio,
-            right_eye_ratio=right_eye_ratio,
             blendshapes=blendshapes,
         )
 

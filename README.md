@@ -54,11 +54,6 @@ python -m src.examples.cursor_control
 python -m src.examples.head_cursor
 ```
 
-- Linux wink-controlled cursor (webcam required):
-```bash
-python -m src.examples.wink_cursor
-```
-
 ### 5. Run the Main Application
 ```bash
 python main.py

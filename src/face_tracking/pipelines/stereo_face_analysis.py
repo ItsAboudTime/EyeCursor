@@ -8,7 +8,6 @@ import numpy as np
 from src.face_tracking.pipelines.face_analysis import FaceAnalysisResult
 from src.face_tracking.providers.face_landmarks import FaceLandmarksProvider
 from src.face_tracking.signals.blendshapes import extract_blendshapes
-from src.face_tracking.signals.wink import detect_wink_direction_from_ratios, get_eye_aspect_ratios
 
 
 @dataclass
@@ -365,22 +364,14 @@ class StereoFaceAnalysisPipeline:
         if mapped is not None:
             screen_position, angles, depth = mapped
 
-        # Gesture detection sources blendshapes and EAR from the left camera so
+        # Gesture detection sources blendshapes from the left camera so
         # downstream consumers see the same observation that drives head pose.
         blendshapes = extract_blendshapes(left_observation.blendshapes)
-        left_eye_ratio, right_eye_ratio = get_eye_aspect_ratios(left_observation.landmarks)
-        wink_direction = detect_wink_direction_from_ratios(
-            left_ratio=float(left_eye_ratio),
-            right_ratio=float(right_eye_ratio),
-        )
 
         return FaceAnalysisResult(
             landmarks=left_observation.landmarks,
             screen_position=screen_position,
             angles=angles,
-            wink_direction=wink_direction,
-            left_eye_ratio=float(left_eye_ratio),
-            right_eye_ratio=float(right_eye_ratio),
             facial_transformation_matrix=left_observation.facial_transformation_matrix,
             depth=depth,
             blendshapes=blendshapes,

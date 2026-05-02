@@ -174,9 +174,6 @@ class EyeGazeMode(TrackingMode):
                             facial_transformation_matrix=observation.facial_transformation_matrix,
                             screen_position=None,
                             angles=None,
-                            wink_direction=None,
-                            left_eye_ratio=None,
-                            right_eye_ratio=None,
                             blendshapes=blendshapes,
                         )
                         gesture_controller.handle_face_analysis(face_analysis, now=time.time())

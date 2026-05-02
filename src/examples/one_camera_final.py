@@ -1,5 +1,5 @@
 """
-Combined demo: control the mouse cursor with head pose + wink gestures.
+Combined demo: control the mouse cursor with head pose + facial gestures.
 
 Requires webcam, OpenCV, MediaPipe, and the project's `cursor` and `head_track` modules.
 Cross-platform note: keyboard controls are handled by the Tkinter window.
@@ -18,11 +18,6 @@ from src.face_tracking.controllers.gesture import GestureController
 from src.ui.settings import SettingsWindow
 from src.face_tracking.pipelines.face_analysis import FaceAnalysisPipeline
 
-
-BOTH_EYES_SQUINT_SCROLL_THRESHOLD = 0.3
-BOTH_EYES_OPEN_SCROLL_THRESHOLD = 0.65
-EYE_SCROLL_HOLD_SECONDS = 1.0
-EYE_SCROLL_DELTA = 120
 
 
 def run_tracking_loop(cursor, stop_queue, control_queue):
@@ -45,7 +40,7 @@ def run_tracking_loop(cursor, stop_queue, control_queue):
     gesture_controller = GestureController(cursor=cursor)
     latest_head_angles = None
 
-    print("Head+Wink Cursor demo running.")
+    print("Head+Gesture Cursor demo running.")
     print("Focus the settings window and press 'c' to calibrate, 'q' or Esc to quit.")
 
     try:

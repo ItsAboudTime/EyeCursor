@@ -1,16 +1,16 @@
 """
-Stereo demo: control the mouse cursor with head pose + wink gestures using two cameras.
+Stereo demo: control the mouse cursor with head pose + facial gestures using two cameras.
 
 Pipeline:
 left+right frames -> MediaPipe landmarks -> triangulation of important points ->
 yaw/pitch/depth estimation -> cursor + gesture control.
 
 Edit the calibration variables below with your stereo calibration output:
-    K1, D1, K2, D2, R, T
+        K1, D1, K2, D2, R, T
 
 Keyboard controls are handled by the Tkinter window:
-  - q / Esc: quit
-  - c: calibrate current head pose as center
+    - q / Esc: quit
+    - c: calibrate current head pose as center
 """
 
 import sys
@@ -25,6 +25,11 @@ from src.cursor import create_cursor
 from src.face_tracking.controllers.gesture import GestureController
 from src.face_tracking.pipelines.stereo_face_analysis import StereoCalibration, StereoFaceAnalysisPipeline
 from src.face_tracking.providers.face_landmarks import FaceLandmarksProvider
+from src.face_tracking.signals.blendshapes import (
+    compute_smirk_activations,
+    pucker_value,
+    tuck_value,
+)
 from src.ui.settings import SettingsWindow
 
 
@@ -64,12 +69,6 @@ T = np.array([
     [0.004312],
 ], dtype=np.float64)
 
-BOTH_EYES_SQUINT_SCROLL_THRESHOLD = 0.3
-BOTH_EYES_OPEN_SCROLL_THRESHOLD = 0.65
-EYE_SCROLL_HOLD_SECONDS = 1.0
-EYE_SCROLL_DELTA = 120
-WINK_EYE_CLOSED_THRESHOLD = 0.3
-WINK_EYE_OPEN_THRESHOLD = 0.3
 VIS_WINDOW_NAME = "Stereo Pipeline Visualization"
 
 VIS_LANDMARK_INDICES = [1, 10, 33, 133, 145, 152, 159, 160, 234, 263, 362, 373, 374, 385, 386, 387, 454]
@@ -572,9 +571,14 @@ class StereoProcessVisualizer:
         else:
             put_line("screen: n/a")
 
-        put_line(f"left EAR : {face_analysis.left_eye_ratio:.4f}" if face_analysis.left_eye_ratio is not None else "left EAR : n/a")
-        put_line(f"right EAR: {face_analysis.right_eye_ratio:.4f}" if face_analysis.right_eye_ratio is not None else "right EAR: n/a")
-        put_line(f"wink: {face_analysis.wink_direction or 'none'}")
+        blendshapes = face_analysis.blendshapes or {}
+        smirk_left, smirk_right = compute_smirk_activations(blendshapes)
+        pucker = pucker_value(blendshapes)
+        tuck = tuck_value(blendshapes)
+        put_line(f"smirk L: {smirk_left:.3f}" if smirk_left is not None else "smirk L: n/a")
+        put_line(f"smirk R: {smirk_right:.3f}" if smirk_right is not None else "smirk R: n/a")
+        put_line(f"pucker : {pucker:.3f}" if pucker is not None else "pucker : n/a")
+        put_line(f"tuck   : {tuck:.3f}" if tuck is not None else "tuck   : n/a")
 
         if points_3d:
             front = points_3d.get(1)
@@ -665,7 +669,7 @@ def run_tracking_loop(cursor, stop_queue, control_queue, visualization_queue):
     gesture_controller = GestureController(cursor=cursor)
     latest_head_angles = None
 
-    print("Stereo Head+Wink Cursor demo running.")
+    print("Stereo Head+Gesture Cursor demo running.")
     print(
         "Focus the settings window and press 'c' to calibrate, 'q' or Esc to quit. "
         f"Using left={LEFT_CAMERA_INDEX}, right={RIGHT_CAMERA_INDEX}."

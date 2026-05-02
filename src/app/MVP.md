@@ -272,38 +272,28 @@ Used by:
 - One-camera head pose mode
 - Two-camera head pose mode
 
-The current prototype uses hardcoded thresholds such as:
-
-```python
-BOTH_EYES_SQUINT_SCROLL_THRESHOLD
-BOTH_EYES_OPEN_SCROLL_THRESHOLD
-WINK_EYE_CLOSED_THRESHOLD
-WINK_EYE_OPEN_THRESHOLD
-```
-
-These should become dynamic per-user calibration values.
+The current prototype uses hardcoded facial-gesture thresholds that should
+become dynamic per-user calibration values.
 
 Flow:
 
-1. Ask user to open both eyes normally.
-2. Capture open-eye ratio range.
-3. Ask user to close left eye / left wink.
-4. Capture left-wink ratio range.
-5. Ask user to close right eye / right wink.
-6. Capture right-wink ratio range.
-7. Ask user to squint both eyes.
-8. Capture both-eyes-squint ratio range.
+1. Ask user to relax the face.
+2. Capture baseline blendshape values.
+3. Ask user to pucker lips.
+4. Capture pucker range.
+5. Ask user to tuck lips inward.
+6. Capture tuck range.
+7. Ask user to smirk left, then right.
+8. Capture smirk activation ranges.
 9. Compute thresholds from user-specific measurements.
 10. Save the thresholds in the profile.
 
 Saved values may include:
 
-- Left eye open average
-- Right eye open average
-- Left wink threshold
-- Right wink threshold
-- Both eyes open threshold
-- Both eyes squint threshold
+- Pucker baseline + trigger threshold
+- Tuck baseline + trigger threshold
+- Smirk left baseline + trigger threshold
+- Smirk right baseline + trigger threshold
 - Hold duration for click/drag
 - Hold duration for scroll
 - Scroll amount
@@ -414,10 +404,10 @@ Use:
 
 Use:
 
-- Separation between open-eye and closed-eye ratios
-- Consistency across repeated blinks/winks
-- Whether left and right wink signals are distinguishable
-- Whether squint is clearly different from normal open eyes
+- Separation between neutral and pucker/tuck levels
+- Consistency across repeated pucker/tuck actions
+- Whether left/right smirk signals are distinguishable
+- Whether smirk activation is distinct from neutral
 
 ### 8.3 Eye-Gaze Quality
 
@@ -490,12 +480,12 @@ Default mapping:
 
 | Gesture | Action |
 |---|---|
-| Left wink | Left click |
-| Right wink | Right click |
-| Hold left wink | Hold left mouse button / drag |
-| Hold right wink | Hold right mouse button |
-| Both eyes open and hold | Scroll one direction |
-| Both eyes squint and hold | Scroll opposite direction |
+| Pucker lips | Left click |
+| Tuck lips inward | Right click |
+| Hold pucker | Hold left mouse button / drag |
+| Hold tuck | Hold right mouse button |
+| Smirk left | Scroll up |
+| Smirk right | Scroll down |
 
 The UI must show these mappings clearly during onboarding, calibration, and settings.
 
@@ -931,9 +921,9 @@ Deliverable:
 
 Deliverable:
 
-- Left wink maps to left click
-- Right wink maps to right click
-- Scroll gestures use calibrated thresholds
+- Pucker maps to left click
+- Tuck maps to right click
+- Smirk gestures use calibrated thresholds
 
 ---
 

@@ -1,16 +1,16 @@
 """
-Stereo demo: control the mouse cursor with head pose + wink gestures using two cameras.
+Stereo demo: control the mouse cursor with head pose + facial gestures using two cameras.
 
 Pipeline:
 left+right frames -> MediaPipe landmarks -> triangulation of important points ->
 yaw/pitch/depth estimation -> cursor + gesture control.
 
 Edit the calibration variables below with your stereo calibration output:
-    K1, D1, K2, D2, R, T
+        K1, D1, K2, D2, R, T
 
 Keyboard controls are handled by the Tkinter window:
-  - q / Esc: quit
-  - c: calibrate current head pose as center
+    - q / Esc: quit
+    - c: calibrate current head pose as center
 """
 
 import sys
@@ -63,12 +63,6 @@ T = np.array([
     [0.004312],
 ], dtype=np.float64)
 
-BOTH_EYES_SQUINT_SCROLL_THRESHOLD = 0.3
-BOTH_EYES_OPEN_SCROLL_THRESHOLD = 0.65
-EYE_SCROLL_HOLD_SECONDS = 1.0
-EYE_SCROLL_DELTA = 120
-WINK_EYE_CLOSED_THRESHOLD = 0.3
-WINK_EYE_OPEN_THRESHOLD = 0.3
 EMA_ALPHA = 0.08
 
 
@@ -114,7 +108,7 @@ def run_tracking_loop(cursor, stop_queue, control_queue):
     gesture_controller = GestureController(cursor=cursor)
     latest_head_angles = None
 
-    print("Stereo Head+Wink Cursor demo running.")
+    print("Stereo Head+Gesture Cursor demo running.")
     print(
         "Focus the settings window and press 'c' to calibrate, 'q' or Esc to quit. "
         f"Using left={LEFT_CAMERA_INDEX}, right={RIGHT_CAMERA_INDEX}."
