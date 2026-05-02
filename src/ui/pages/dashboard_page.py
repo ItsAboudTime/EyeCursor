@@ -61,7 +61,7 @@ class DashboardPage(QWidget):
         self._calib_badges = {}
         calib_items = [
             ("head_pose", "Head Pose"),
-            ("eye_gestures", "Facial Gestures"),
+            ("facial_gestures", "Facial Gestures"),
             ("stereo", "Stereo"),
             ("eye_gaze", "Eye Gaze"),
         ]
@@ -152,7 +152,7 @@ class DashboardPage(QWidget):
         # overwrite bug from a flat mode_key -> badge_key mapping.
         badge_to_modes = {
             "head_pose": ["one_camera_head_pose", "two_camera_head_pose"],
-            "eye_gestures": ["eye_gestures"],
+            "facial_gestures": ["facial_gestures"],
             "stereo": ["stereo"],
             "eye_gaze": ["eye_gaze"],
         }

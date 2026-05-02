@@ -445,7 +445,7 @@ class StereoModeValidationTests(unittest.TestCase):
             "stereo": self._stereo_calibration(),
             "two_camera_head_pose": {"yaw_span": 30, "pitch_span": 20,
                                      "center_yaw": 0, "center_pitch": 0},
-            "eye_gestures": {"version": 4},
+            "facial_gestures": {"version": 4},
         }
         # User asked for cameras [8, 2] but the calibration was built for
         # the cameras whose stable IDs are now at [2, 8] (cables swapped).
@@ -470,7 +470,7 @@ class StereoModeValidationTests(unittest.TestCase):
         cal = {
             "stereo": self._stereo_calibration(),
             "eye_gaze": {"weights_path": ""},
-            "eye_gestures": {},
+            "facial_gestures": {},
         }
         # Only one of the two calibrated cameras is currently connected.
         with patch(
@@ -512,7 +512,7 @@ class EndToEndMigrationTests(unittest.TestCase):
                                 {"yaw_span": 30})
             pm.save_calibration(profile.id, "eye_gaze",
                                 {"weights_path": ""})
-            pm.save_calibration(profile.id, "eye_gestures", {"version": 4})
+            pm.save_calibration(profile.id, "facial_gestures", {"version": 4})
 
             with patch(
                 "src.core.devices.calibration_migration.stable_id_for_index",
@@ -534,7 +534,7 @@ class EndToEndMigrationTests(unittest.TestCase):
             gaze = pm.load_calibration(profile.id, "eye_gaze")
             self.assertEqual(gaze[KEY_CAMERA_STABLE_ID],
                              "usb:1bcf:d828:port:3-3")
-            gestures = pm.load_calibration(profile.id, "eye_gestures")
+            gestures = pm.load_calibration(profile.id, "facial_gestures")
             self.assertEqual(gestures[KEY_CAMERA_STABLE_ID],
                              "usb:1bcf:d828:port:3-3")
 

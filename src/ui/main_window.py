@@ -354,7 +354,7 @@ class MainWindow(QMainWindow):
             selected_cameras = [left, right]
 
         calibrations = {}
-        for cal_id in ["one_camera_head_pose", "two_camera_head_pose", "eye_gaze", "eye_gestures"]:
+        for cal_id in ["one_camera_head_pose", "two_camera_head_pose", "eye_gaze", "facial_gestures"]:
             calibrations[cal_id] = self._profile_manager.load_calibration(
                 self._active_profile.id, cal_id
             )

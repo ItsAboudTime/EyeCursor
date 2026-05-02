@@ -583,7 +583,7 @@ Example:
 
 The clicking task measures whether the user can click the correct target using the correct click type.
 
-This task is especially important for testing eye-gesture clicking.
+This task is especially important for testing facial-gesture clicking.
 
 ### 12.2 Behavior
 

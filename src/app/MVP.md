@@ -42,7 +42,7 @@ Includes:
 
 - Camera selection
 - Head-pose calibration
-- Eye-gesture calibration
+- Facial gesture calibration
 - Cursor movement
 - Click and scroll gestures
 - Per-profile calibration storage
@@ -61,7 +61,7 @@ Includes:
 - Right camera selection
 - Stereo calibration using a grid/checkerboard
 - Head-pose calibration
-- Eye-gesture calibration
+- Facial gesture calibration
 - Cursor movement
 - Click and scroll gestures
 - Per-profile calibration storage
@@ -95,7 +95,7 @@ Includes:
 - Cursor movement through gaze estimation
 - Per-profile calibration storage
 
-Eye-gaze-only mode does **not** require eye gestures for the MVP.
+Eye-gaze-only mode does **not** require facial gestures for the MVP.
 
 ---
 
@@ -181,7 +181,7 @@ Each profile stores:
 - Preferred camera for one-camera modes
 - Preferred left/right cameras for two-camera mode
 - Per-mode calibration data
-- Eye-gesture calibration data
+- Facial gesture calibration data
 - Stereo calibration data
 - UI preferences if needed later
 
@@ -196,7 +196,7 @@ EyeCursor/
         one_camera_head_pose.json
         two_camera_head_pose.json
         eye_gaze.json
-        eye_gestures.json
+        facial_gestures.json
       stereo/
         calibration.json
   app_settings.json
@@ -265,7 +265,7 @@ Saved values may include:
 
 ---
 
-### 7.3 Eye-Gesture Calibration
+### 7.3 Facial Gesture Calibration
 
 Used by:
 
@@ -410,7 +410,7 @@ Use:
 - Consistency when returning to center
 - Range coverage across calibration targets
 
-### 8.2 Eye-Gesture Quality
+### 8.2 Facial Gesture Quality
 
 Use:
 
@@ -482,9 +482,9 @@ For two-camera mode:
 
 ---
 
-## 10. Eye Gesture Mapping
+## 10. Facial Gesture Mapping
 
-Eye gestures are used only in the head-pose modes for the MVP.
+Facial gestures are used only in the head-pose modes for the MVP.
 
 Default mapping:
 
@@ -581,7 +581,7 @@ Show mode cards:
 
 ```text
 One-Camera Head Pose
-Simple setup, one webcam, supports eye gestures.
+Simple setup, one webcam, supports facial gestures.
 
 Two-Camera Head Pose
 More advanced, requires stereo calibration.
@@ -688,7 +688,7 @@ src/
     calibration/
       calibration_manager.py
       head_pose_calibration.py
-      eye_gesture_calibration.py
+      facial_gesture_calibration.py
       gaze_calibration.py
       stereo_calibration.py
     devices/
@@ -713,7 +713,7 @@ class TrackingMode:
     description: str
     required_camera_count: int
     requires_head_pose_calibration: bool
-    requires_eye_gesture_calibration: bool
+    requires_facial_gesture_calibration: bool
     requires_stereo_calibration: bool
     requires_gaze_calibration: bool
 
@@ -913,7 +913,7 @@ Deliverable:
 - Refactor existing one-camera prototype into mode class
 - Connect mode to app UI
 - Add head-pose calibration flow
-- Add eye-gesture calibration flow
+- Add facial gesture calibration flow
 - Add start/pause/stop tracking
 
 Deliverable:
@@ -922,7 +922,7 @@ Deliverable:
 
 ---
 
-### Phase 4: Eye Gesture Calibration
+### Phase 4: Facial Gesture Calibration
 
 - Replace hardcoded gesture thresholds
 - Add per-user threshold calculation
@@ -990,7 +990,7 @@ The MVP is complete when:
 3. User can discover and select cameras.
 4. User can select one of the supported modes.
 5. One-camera head pose mode works through the app.
-6. Eye-gesture thresholds are calibrated per user.
+6. Facial gesture thresholds are calibrated per user.
 7. Two-camera mode requires stereo calibration before use.
 8. Stereo calibration values are saved dynamically, not hardcoded.
 9. Eye-gaze mode has a calibration flow and can be launched from the app.
@@ -1006,7 +1006,7 @@ The MVP is complete when:
 
 Build the MVP as a polished PySide6 desktop application with a modular tracking-mode architecture.
 
-Start with one-camera head pose mode because it is the easiest to stabilize. Then add calibrated eye gestures, camera discovery, two-camera stereo calibration, and eye-gaze mode.
+Start with one-camera head pose mode because it is the easiest to stabilize. Then add calibrated facial gestures, camera discovery, two-camera stereo calibration, and eye-gaze mode.
 
 The app should feel like a real product:
 

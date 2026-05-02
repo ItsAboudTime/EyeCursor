@@ -109,7 +109,7 @@ class ProfileManager:
             "one_camera_head_pose",
             "two_camera_head_pose",
             "eye_gaze",
-            "eye_gestures",
+            "facial_gestures",
         ]
         status = {}
         for mode_id in modes:

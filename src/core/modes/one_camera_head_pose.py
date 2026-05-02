@@ -84,7 +84,7 @@ def _build_gesture_controller(cursor, gesture_calib: Optional[dict]) -> GestureC
         )
     if gesture_calib is not None:
         print(
-            "[gesture] eye_gestures calibration is from a previous version; "
+            "[gesture] facial_gestures calibration is from a previous version; "
             "using default smirk/pucker/tuck thresholds (no baseline subtraction). "
             "Please recalibrate for best results."
         )
@@ -100,7 +100,7 @@ class OneCameraHeadPoseMode(TrackingMode):
     )
     required_camera_count = 1
     requires_head_pose_calibration = True
-    requires_eye_gesture_calibration = True
+    requires_facial_gesture_calibration = True
 
     def __init__(self) -> None:
         self._should_stop = False
@@ -121,8 +121,8 @@ class OneCameraHeadPoseMode(TrackingMode):
             return False, "No camera selected."
         if not profile_calibrations.get("one_camera_head_pose"):
             return False, "Head pose calibration required."
-        if not profile_calibrations.get("eye_gestures"):
-            return False, "Eye gesture calibration required."
+        if not profile_calibrations.get("facial_gestures"):
+            return False, "Facial gesture calibration required."
         return True, ""
 
     def start(
@@ -137,7 +137,7 @@ class OneCameraHeadPoseMode(TrackingMode):
         settings = settings or {}
 
         calib = profile_calibrations["one_camera_head_pose"]
-        gesture_calib = profile_calibrations.get("eye_gestures")
+        gesture_calib = profile_calibrations.get("facial_gestures")
 
         # Surface a non-blocking warning if either calibration was created
         # on a different physical camera than the one the user picked.

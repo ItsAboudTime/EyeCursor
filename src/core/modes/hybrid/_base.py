@@ -27,7 +27,7 @@ class _HybridGazeHeadModeBase(TrackingMode):
     required_camera_count = 1
     requires_head_pose_calibration = True
     requires_gaze_calibration = True
-    requires_eye_gesture_calibration = True
+    requires_facial_gesture_calibration = True
 
     # Future hook: skip the gaze CNN forward pass when its result is unused
     # (e.g. outside the safe zone in Modes 1 and 2, or when alpha == 1 in Mode 3).
@@ -49,8 +49,8 @@ class _HybridGazeHeadModeBase(TrackingMode):
             return False, "No camera selected."
         if not profile_calibrations.get("one_camera_head_pose"):
             return False, "Head pose calibration required."
-        if not profile_calibrations.get("eye_gestures"):
-            return False, "Eye gesture calibration required."
+        if not profile_calibrations.get("facial_gestures"):
+            return False, "Facial gesture calibration required."
         gaze_calib = profile_calibrations.get("eye_gaze")
         if not gaze_calib:
             return False, "Gaze calibration required."
@@ -80,7 +80,7 @@ class _HybridGazeHeadModeBase(TrackingMode):
 
         calib_head = profile_calibrations["one_camera_head_pose"]
         calib_gaze = profile_calibrations["eye_gaze"]
-        gesture_calib = profile_calibrations.get("eye_gestures")
+        gesture_calib = profile_calibrations.get("facial_gestures")
 
         camera = cv2.VideoCapture(selected_cameras[0])
         if not camera.isOpened():

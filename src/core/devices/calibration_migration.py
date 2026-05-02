@@ -11,7 +11,7 @@ augments each file with the new ``camera_stable_id`` /
 Migration is intentionally conservative:
 
 * Only files lacking the stable ID are touched.
-* Single-camera calibrations (head pose, eye gaze, eye gestures) are
+* Single-camera calibrations (head pose, eye gaze, facial gestures) are
   migrated when the user has an active per-mode camera selection on
   the profile that uniquely identifies the camera. The risk is low: if
   we end up recording a "wrong" stable ID the user just gets a recovery
@@ -51,7 +51,7 @@ from src.core.profiles.profile_manager import ProfileManager
 from src.core.profiles.profile_model import ProfileModel
 
 
-_SINGLE_CAMERA_MODES = ("one_camera_head_pose", "eye_gaze", "eye_gestures")
+_SINGLE_CAMERA_MODES = ("one_camera_head_pose", "eye_gaze", "facial_gestures")
 
 
 def migrate_profile(
@@ -96,7 +96,7 @@ def migrate_profile(
     eye_gaze_idx = cams.get("eye_gaze", one_cam_idx)
     one_cam_to_idx = {
         "one_camera_head_pose": one_cam_idx,
-        "eye_gestures": one_cam_idx,
+        "facial_gestures": one_cam_idx,
         "eye_gaze": eye_gaze_idx,
     }
     for mode_id in _SINGLE_CAMERA_MODES:

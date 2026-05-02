@@ -74,7 +74,7 @@ class TwoCameraHeadPoseMode(TrackingMode):
     )
     required_camera_count = 2
     requires_head_pose_calibration = True
-    requires_eye_gesture_calibration = True
+    requires_facial_gesture_calibration = True
     requires_stereo_calibration = True
 
     def __init__(self) -> None:
@@ -111,8 +111,8 @@ class TwoCameraHeadPoseMode(TrackingMode):
             if not profile_calibrations.get("one_camera_head_pose"):
                 return False, "Head pose calibration required."
 
-        if not profile_calibrations.get("eye_gestures"):
-            return False, "Eye gesture calibration required."
+        if not profile_calibrations.get("facial_gestures"):
+            return False, "Facial gesture calibration required."
         return True, ""
 
     def start(
@@ -131,7 +131,7 @@ class TwoCameraHeadPoseMode(TrackingMode):
             profile_calibrations.get("two_camera_head_pose")
             or profile_calibrations["one_camera_head_pose"]
         )
-        gesture_calib = profile_calibrations.get("eye_gestures")
+        gesture_calib = profile_calibrations.get("facial_gestures")
 
         stereo_calib = StereoCalibration(
             k1=np.array(stereo_data["K1"], dtype=np.float64),

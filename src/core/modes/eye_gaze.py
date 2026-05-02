@@ -47,7 +47,7 @@ class EyeGazeMode(TrackingMode):
     )
     required_camera_count = 1
     requires_gaze_calibration = True
-    requires_eye_gesture_calibration = True
+    requires_facial_gesture_calibration = True
 
     def __init__(self) -> None:
         self._should_stop = False
@@ -68,8 +68,8 @@ class EyeGazeMode(TrackingMode):
         gaze_calib = profile_calibrations.get("eye_gaze")
         if not gaze_calib:
             return False, "Gaze calibration required."
-        if not profile_calibrations.get("eye_gestures"):
-            return False, "Eye gesture calibration required."
+        if not profile_calibrations.get("facial_gestures"):
+            return False, "Facial gesture calibration required."
         for key, label in (
             ("weights_path", "Model weights"),
             ("predictor_path", "Face landmark predictor"),
@@ -95,7 +95,7 @@ class EyeGazeMode(TrackingMode):
         from src.eye_tracking.controllers.gaze_cursor_controller import GazeCursorController
 
         calib = profile_calibrations["eye_gaze"]
-        gesture_calib = profile_calibrations.get("eye_gestures")
+        gesture_calib = profile_calibrations.get("facial_gestures")
 
         for cal_obj, cal_label in (
             (calib, "gaze calibration"),

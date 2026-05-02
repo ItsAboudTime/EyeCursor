@@ -133,7 +133,7 @@ class CalibrationPage(QWidget):
         calibrations = [
             ("one_camera_head_pose", "Head Pose Calibration",
              "Maps head movement to cursor position. Required for one-camera and two-camera modes."),
-            ("eye_gestures", "Facial Gesture Calibration",
+            ("facial_gestures", "Facial Gesture Calibration",
              "Calibrates smirk, pucker, and lip-tuck thresholds for clicks and scrolling."),
             ("stereo", "Stereo Calibration",
              "Calibrates two cameras for stereo depth. Required for two-camera mode."),
@@ -197,8 +197,8 @@ class CalibrationPage(QWidget):
 
         if cal_id == "one_camera_head_pose":
             self._run_head_pose_calibration(camera_index)
-        elif cal_id == "eye_gestures":
-            self._run_eye_gesture_calibration(camera_index)
+        elif cal_id == "facial_gestures":
+            self._run_facial_gesture_calibration(camera_index)
         elif cal_id == "stereo":
             self._run_stereo_calibration()
         elif cal_id == "eye_gaze":
@@ -230,7 +230,7 @@ class CalibrationPage(QWidget):
                 )
                 self.refresh_status()
 
-    def _run_eye_gesture_calibration(self, camera_index: int) -> None:
+    def _run_facial_gesture_calibration(self, camera_index: int) -> None:
         from src.ui.wizards.facial_gesture_wizard import FacialGestureCalibrationWizard
 
         wizard = FacialGestureCalibrationWizard(
@@ -245,7 +245,7 @@ class CalibrationPage(QWidget):
                     result, camera_index, self._camera_manager
                 )
                 self._profile_manager.save_calibration(
-                    self._active_profile_id, "eye_gestures", result
+                    self._active_profile_id, "facial_gestures", result
                 )
                 self.refresh_status()
 

@@ -8,7 +8,7 @@ class TrackingMode(ABC):
     description: str = ""
     required_camera_count: int = 1
     requires_head_pose_calibration: bool = False
-    requires_eye_gesture_calibration: bool = False
+    requires_facial_gesture_calibration: bool = False
     requires_stereo_calibration: bool = False
     requires_gaze_calibration: bool = False
 
