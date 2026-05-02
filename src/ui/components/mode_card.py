@@ -41,6 +41,10 @@ class ModeCard(QFrame):
         header.addStretch()
 
         self._badge = CalibrationScoreBadge(calibration_label)
+        badge_width = 0
+        for label in ("Not Calibrated", "Calibrated"):
+            temp_badge = CalibrationScoreBadge(label)
+            badge_width = max(badge_width, temp_badge.sizeHint().width())
         header.addWidget(self._badge)
         layout.addLayout(header)
 
@@ -63,6 +67,17 @@ class ModeCard(QFrame):
             "QPushButton:hover { background: #0652DD; }"
             "QPushButton:disabled { background: #74b9ff; }"
         )
+        current_text = self._select_btn.text()
+        select_width = 0
+        for text in ("Selected", "Select"):
+            self._select_btn.setText(text)
+            select_width = max(select_width, self._select_btn.sizeHint().width())
+        self._select_btn.setText(current_text)
+
+        target_width = max(badge_width, select_width)
+        if target_width:
+            self._badge.setFixedWidth(target_width)
+            self._select_btn.setFixedWidth(target_width)
         self._select_btn.clicked.connect(lambda: self.selected.emit(self._mode_id))
         info_row.addWidget(self._select_btn)
         layout.addLayout(info_row)

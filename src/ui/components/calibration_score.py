@@ -3,8 +3,8 @@ from PySide6.QtCore import Qt
 
 
 QUALITY_COLORS = {
-    "Excellent": "#2ecc71",
-    "Good": "#27ae60",
+    "Excellent": "#27ae60",
+    "Good": "#2ecc71",
     "Acceptable": "#f39c12",
     "Poor": "#e74c3c",
     "Failed": "#c0392b",

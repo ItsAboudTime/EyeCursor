@@ -206,7 +206,29 @@ class MainWindow(QMainWindow):
         self._dashboard_page.set_mode_name(mode_name)
 
         cal_status = self._profile_manager.get_calibration_status(self._active_profile.id)
-        self._dashboard_page.update_calibration_status(cal_status)
+        cal_details = {}
+        for mode_id, is_calibrated in cal_status.items():
+            quality_label = ""
+            if is_calibrated:
+                if mode_id == "stereo":
+                    cal_data = self._profile_manager.load_stereo_calibration(
+                        self._active_profile.id
+                    )
+                elif mode_id == "eye_gaze_bubble":
+                    cal_data = self._profile_manager.load_calibration(
+                        self._active_profile.id, "eye_gaze"
+                    )
+                else:
+                    cal_data = self._profile_manager.load_calibration(
+                        self._active_profile.id, mode_id
+                    )
+                if cal_data:
+                    quality_label = cal_data.get("quality_label", "")
+            cal_details[mode_id] = {
+                "is_calibrated": is_calibrated,
+                "quality_label": quality_label,
+            }
+        self._dashboard_page.update_calibration_status(cal_details)
 
         cams = self._active_profile.preferred_cameras
         one_cam = cams.get("one_camera")

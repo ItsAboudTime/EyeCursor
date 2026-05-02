@@ -48,6 +48,7 @@ class CalibrationEntry(QFrame):
         layout.addLayout(info_layout, stretch=1)
 
         self._badge = CalibrationScoreBadge("Not Calibrated")
+        self._badge.setFixedWidth(140)
         layout.addWidget(self._badge)
 
         btn_style = (
@@ -70,6 +71,15 @@ class CalibrationEntry(QFrame):
         reset_btn.setStyleSheet(reset_style)
         reset_btn.clicked.connect(lambda: self.reset_clicked.emit(self._cal_id))
         layout.addWidget(reset_btn)
+
+        target_height = max(
+            self._badge.sizeHint().height(),
+            cal_btn.sizeHint().height(),
+            reset_btn.sizeHint().height(),
+        )
+        self._badge.setFixedHeight(target_height)
+        cal_btn.setFixedHeight(target_height)
+        reset_btn.setFixedHeight(target_height)
 
     def set_status(self, is_calibrated: bool, quality_label: str = "") -> None:
         if is_calibrated:

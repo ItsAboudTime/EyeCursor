@@ -156,14 +156,40 @@ class DashboardPage(QWidget):
             "stereo": ["stereo"],
             "eye_gaze": ["eye_gaze"],
         }
+        quality_rank = {
+            "Failed": 0,
+            "Poor": 1,
+            "Acceptable": 2,
+            "Good": 3,
+            "Excellent": 4,
+        }
+
         for badge_key, mode_ids in badge_to_modes.items():
             if badge_key not in self._calib_badges:
                 continue
             present = [m for m in mode_ids if m in statuses]
             if not present:
                 continue
-            calibrated = any(statuses[m] for m in present)
-            label = "Good" if calibrated else "Not Calibrated"
+            calibrated = False
+            best_label = ""
+            for mode_id in present:
+                entry = statuses[mode_id]
+                if isinstance(entry, dict):
+                    is_calibrated = bool(entry.get("is_calibrated"))
+                    quality_label = entry.get("quality_label", "")
+                else:
+                    is_calibrated = bool(entry)
+                    quality_label = ""
+                if not is_calibrated:
+                    continue
+                calibrated = True
+                if quality_label in quality_rank:
+                    if not best_label or quality_rank[quality_label] > quality_rank.get(best_label, -1):
+                        best_label = quality_label
+            if not calibrated:
+                label = "Not Calibrated"
+            else:
+                label = best_label if best_label else "Good"
             self._calib_badges[badge_key].set_label(label)
 
     def set_tracking_state(self, state: str) -> None:
