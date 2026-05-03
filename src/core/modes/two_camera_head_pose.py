@@ -6,6 +6,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+from src.capture.frame_capture import STEREO_LEFT_CAM_ID, STEREO_RIGHT_CAM_ID
+from src.capture.supervisor import CaptureSupervisor
 from src.core.devices.camera_identity import match_stereo_cameras
 from src.core.modes._viz_helpers import derive_last_action
 from src.core.modes.base import TrackingMode
@@ -142,15 +144,17 @@ class TwoCameraHeadPoseMode(TrackingMode):
             t=np.array(stereo_data["T"], dtype=np.float64).reshape(3, 1),
         )
 
-        left_cam = cv2.VideoCapture(selected_cameras[0])
-        right_cam = cv2.VideoCapture(selected_cameras[1])
-        if not left_cam.isOpened() or not right_cam.isOpened():
-            left_cam.release()
-            right_cam.release()
+        supervisor = CaptureSupervisor(
+            camera_indices=[selected_cameras[0], selected_cameras[1]]
+        )
+        try:
+            supervisor.start(timeout=5.0)
+        except RuntimeError as exc:
             raise RuntimeError(
                 "Could not open one or both cameras. "
-                "Try closing other apps that may be using them."
-            )
+                "Try closing other apps that may be using them. "
+                f"Detail: {exc}"
+            ) from exc
 
         pipeline = StereoFaceAnalysisPipeline(
             stereo_calibration=stereo_calib,
@@ -174,15 +178,30 @@ class TwoCameraHeadPoseMode(TrackingMode):
         broadcaster.start()
 
         try:
+            since_left = 0.0
+            since_right = 0.0
             while not self._should_stop:
                 if self._paused:
                     time.sleep(0.05)
                     continue
 
-                ok_l, frame_l = left_cam.read()
-                ok_r, frame_r = right_cam.read()
-                if not ok_l or not ok_r:
+                if not supervisor.is_alive():
+                    tail = supervisor.last_stderr_lines(3)
+                    raise RuntimeError(
+                        f"Capture process exited unexpectedly. Last stderr: {tail}"
+                    )
+
+                pair = supervisor.receiver.get_latest_pair(
+                    cam_id_left=STEREO_LEFT_CAM_ID,
+                    cam_id_right=STEREO_RIGHT_CAM_ID,
+                    timeout=0.5,
+                    max_skew=0.05,
+                    since_left=since_left,
+                    since_right=since_right,
+                )
+                if pair is None:
                     continue
+                frame_l, frame_r, since_left, since_right = pair
 
                 rgb_l = cv2.cvtColor(frame_l, cv2.COLOR_BGR2RGB)
                 rgb_r = cv2.cvtColor(frame_r, cv2.COLOR_BGR2RGB)
@@ -214,8 +233,7 @@ class TwoCameraHeadPoseMode(TrackingMode):
         finally:
             broadcaster.stop()
             gesture_controller.shutdown()
-            left_cam.release()
-            right_cam.release()
+            supervisor.stop()
             pipeline.release()
             self._cursor = None
             self._gesture_controller = None

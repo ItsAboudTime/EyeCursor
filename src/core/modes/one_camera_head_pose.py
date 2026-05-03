@@ -3,6 +3,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import cv2
 
+from src.capture.frame_capture import SINGLE_CAM_ID
+from src.capture.supervisor import CaptureSupervisor
 from src.core.devices.camera_identity import warn_if_single_camera_mismatch
 from src.core.modes._viz_helpers import derive_last_action
 from src.core.modes.base import TrackingMode
@@ -151,12 +153,15 @@ class OneCameraHeadPoseMode(TrackingMode):
             if warning:
                 print(f"[mode] {warning}")
 
-        camera = cv2.VideoCapture(selected_cameras[0])
-        if not camera.isOpened():
+        supervisor = CaptureSupervisor(camera_indices=[selected_cameras[0]])
+        try:
+            supervisor.start(timeout=5.0)
+        except RuntimeError as exc:
             raise RuntimeError(
                 f"Could not open Camera {selected_cameras[0]}. "
-                "Try selecting another camera or closing other apps that may be using it."
-            )
+                f"Try selecting another camera or closing other apps that may be using it. "
+                f"Detail: {exc}"
+            ) from exc
 
         pipeline = FaceAnalysisPipeline(
             yaw_span=calib["yaw_span"],
@@ -177,14 +182,24 @@ class OneCameraHeadPoseMode(TrackingMode):
         _apply_gesture_settings(gesture_controller, settings)
 
         try:
+            last_ts = 0.0
             while not self._should_stop:
                 if self._paused:
                     time.sleep(0.05)
                     continue
 
-                ok, frame = camera.read()
-                if not ok:
+                if not supervisor.is_alive():
+                    tail = supervisor.last_stderr_lines(3)
+                    raise RuntimeError(
+                        f"Capture process exited unexpectedly. Last stderr: {tail}"
+                    )
+
+                got = supervisor.receiver.get_latest_bgr(
+                    cam_id=SINGLE_CAM_ID, since=last_ts, timeout=0.5
+                )
+                if got is None:
                     continue
+                frame, last_ts = got
 
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 result = pipeline.analyze(
@@ -208,7 +223,7 @@ class OneCameraHeadPoseMode(TrackingMode):
                     )
         finally:
             gesture_controller.shutdown()
-            camera.release()
+            supervisor.stop()
             pipeline.release()
             self._cursor = None
             self._gesture_controller = None
