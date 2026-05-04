@@ -95,8 +95,7 @@ def draw_head_pose_arrow(
     )
     ox, oy = int(nose_xy[0]), int(nose_xy[1])
     # Project the face Z axis (camera-space) onto image axes.
-    # Camera X/Y already match image X/Y (both right-down), so no sign flip needed.
-    tip = (int(ox + fx * length_px), int(oy + fy * length_px))
+    tip = (int(ox + fx * length_px), int(oy - fy * length_px))
     cv2.arrowedLine(out, (ox, oy), tip, color, thickness, tipLength=0.25, line_type=cv2.LINE_AA)
     return out
 
