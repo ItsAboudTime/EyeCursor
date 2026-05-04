@@ -103,8 +103,11 @@ class _HybridGazeHeadModeBase(TrackingMode):
             inference_kwargs["face_model_path"] = pathlib.Path(calib_gaze["face_model_path"])
         inference = ETHXGazeInference(**inference_kwargs)
 
-        gaze_controller = GazeCursorController(cursor_enabled=False)
-        gaze_controller.cursor = None
+        # target_from_gaze() guards on cursor_enabled and self.cursor; we only
+        # want the gaze->screen math (not to drive the cursor), so satisfy the
+        # guard with the real cursor and never call update_cursor on this controller.
+        gaze_controller = GazeCursorController(cursor_enabled=True)
+        gaze_controller.cursor = cursor
         gaze_controller.cursor_bounds = cursor.get_virtual_bounds()
         if calib_gaze.get("affine"):
             gaze_controller.affine = np.array(calib_gaze["affine"], dtype=np.float64)

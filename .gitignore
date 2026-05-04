@@ -19,3 +19,4 @@ docs/*
 game/photos/
 game/config.json
 .claude/
+CLAUDE.md
