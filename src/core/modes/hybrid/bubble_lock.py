@@ -31,6 +31,10 @@ _VIZ_MIN_INTERVAL = 1.0 / 15.0
 _STATE_GAZE_FOLLOW = "gaze_follow"
 _STATE_FROZEN = "frozen"
 
+# Gesture must stay above trigger threshold for this long before it fires.
+# Eliminates single-frame blendshape spikes caused by head movement.
+_GESTURE_HOLD_SEC = 0.15
+
 
 def _apply_bubble_lock_gesture_settings(gesture_controller, settings: dict) -> None:
     """Apply scroll_enabled only -- click_enabled is owned by the state machine."""
@@ -145,28 +149,36 @@ class HybridBubbleLockMode(TrackingMode):
 
         gesture_controller = _build_gesture_controller(cursor, gesture_calib)
 
-        # Calibrated pucker thresholds (fall back to controller defaults).
+        # Calibrated thresholds for mode-owned gesture detection.
         pucker_baseline = gesture_controller.pucker_baseline
         pucker_trigger_high = gesture_controller.pucker_trigger_high
         pucker_release = gesture_controller.pucker_release
+        tuck_baseline = gesture_controller.tuck_baseline
+        tuck_trigger_high = gesture_controller.tuck_trigger_high
+        tuck_release = gesture_controller.tuck_release
 
         self._cursor = cursor
         self._gesture_controller = gesture_controller
         self._gaze_controller = gaze_controller
         _apply_cursor_settings(cursor, settings)
         _apply_gaze_controller_settings(gaze_controller, settings)
-        # Apply user settings first, then force click_enabled=False so the
-        # GAZE_FOLLOW state suppresses OS clicks. The state machine flips
-        # click_enabled True/False on its own; settings flow through
-        # _apply_bubble_lock_gesture_settings (scroll_enabled only).
         _apply_bubble_lock_gesture_settings(gesture_controller, settings)
+        # Mode owns all click detection and fires OS clicks manually for the
+        # exit gesture. click_enabled stays False so the gesture controller
+        # only handles smirk scrolls.
         gesture_controller.click_enabled = False
 
         # Mode-owned state.
         state = _STATE_GAZE_FOLLOW
-        entry_click_armed = True       # rising-edge gate for the entry pucker
         last_bubble_target: Optional[Tuple[int, int]] = None
         frozen_center: Optional[Tuple[int, int]] = None
+
+        # Gesture detection -- separate flags so a high resting tuck value
+        # can't block the entry re-arm (entry is pucker-only).
+        entry_armed = True           # re-arms when pucker < pucker_release
+        exit_armed = False           # starts False; re-arms when pucker relaxes in FROZEN
+        entry_hold_start: Optional[float] = None   # for 150ms debounce
+        exit_hold_start: Optional[float] = None
 
         try:
             while not self._should_stop:
@@ -189,22 +201,27 @@ class HybridBubbleLockMode(TrackingMode):
                 if result is None:
                     continue
 
-                # Gaze inference -> screen target (used for the bubble target).
+                # Gaze inference -> screen target (bubble target).
+                # Skipped when frozen: the bubble is stationary and the CNN is
+                # the most expensive operation in the loop.
                 gaze_target: Optional[Tuple[int, int]] = None
                 gaze_pitch_rad: Optional[float] = None
                 gaze_yaw_rad: Optional[float] = None
                 face_patch_bgr = None
-                gz = inference.infer_from_frame(frame)
-                if gz is not None:
-                    gaze_pitch_rad, gaze_yaw_rad, face_patch_bgr, _ = gz
-                    t = gaze_controller.target_from_gaze(
-                        yaw_rad=gaze_yaw_rad, pitch_rad=gaze_pitch_rad
-                    )
-                    if t is not None:
-                        gaze_target = t
+                if state == _STATE_GAZE_FOLLOW:
+                    gz = inference.infer_from_frame(frame)
+                    if gz is not None:
+                        gaze_pitch_rad, gaze_yaw_rad, face_patch_bgr, _ = gz
+                        t = gaze_controller.target_from_gaze(
+                            yaw_rad=gaze_yaw_rad, pitch_rad=gaze_pitch_rad
+                        )
+                        if t is not None:
+                            gaze_target = t
 
+                now = time.time()
                 blendshapes = result.blendshapes or {}
                 pucker_now = max(0.0, pucker_value(blendshapes) - pucker_baseline)
+                tuck_now = max(0.0, tuck_value(blendshapes) - tuck_baseline)
 
                 if state == _STATE_GAZE_FOLLOW:
                     # Bubble follows gaze.
@@ -212,31 +229,35 @@ class HybridBubbleLockMode(TrackingMode):
                         self.gaze_target_callback(gaze_target[0], gaze_target[1])
                         last_bubble_target = gaze_target
 
-                    # Entry rising-edge: pucker crosses trigger while armed.
+                    # Entry re-arm: only depends on pucker so a high resting
+                    # tuck value doesn't prevent the user from ever freezing.
                     if pucker_now < pucker_release:
-                        entry_click_armed = True
-                    elif (
-                        pucker_now >= pucker_trigger_high
-                        and entry_click_armed
-                        and last_bubble_target is not None
-                    ):
-                        entry_click_armed = False
-                        cx, cy = last_bubble_target
-                        cx, cy = cursor.clamp_target(int(cx), int(cy))
-                        cursor.set_pos(cx, cy)
-                        # Reset step_towards's internal dt so the next head-driven
-                        # step computes a clean delta from the snap point.
-                        cursor._last_step_time = None
-                        frozen_center = (cx, cy)
-                        state = _STATE_FROZEN
-                        gesture_controller.click_enabled = True
-                        # Force re-arm via release: user must relax pucker before
-                        # the gesture controller fires the next OS click.
-                        gesture_controller._click_armed = False
+                        entry_armed = True
+
+                    # Entry: pucker held for _GESTURE_HOLD_SEC while armed.
+                    if entry_armed and pucker_now >= pucker_trigger_high:
+                        if entry_hold_start is None:
+                            entry_hold_start = now
+                        if now - entry_hold_start >= _GESTURE_HOLD_SEC:
+                            entry_hold_start = None
+                            entry_armed = False
+                            exit_armed = False   # require pucker release before exit arms
+                            if last_bubble_target is not None:
+                                cx, cy = cursor.clamp_target(
+                                    int(last_bubble_target[0]), int(last_bubble_target[1])
+                                )
+                            else:
+                                cx, cy = cursor.get_pos()
+                            cursor.set_pos(cx, cy)
+                            cursor._last_step_time = None
+                            frozen_center = (cx, cy)
+                            state = _STATE_FROZEN
+                    else:
+                        entry_hold_start = None   # gesture dropped, reset timer
 
                 else:  # _STATE_FROZEN
-                    # Convert full-screen head-pose target to a bubble-local one
-                    # by re-normalizing, then offset from the frozen bubble center.
+                    # Convert full-screen head-pose target to bubble-local coords
+                    # by re-normalizing, then offset from the frozen center.
                     if (
                         result.screen_position is not None
                         and frozen_center is not None
@@ -254,19 +275,32 @@ class HybridBubbleLockMode(TrackingMode):
                         target_x, target_y = cursor.clamp_target(target_x, target_y)
                         cursor.step_towards(target_x, target_y)
 
-                    # Exit on rising-edge of any click fired by the gesture controller.
-                    if (
-                        gesture_controller._last_click_side is not None
-                        and not gesture_controller._last_click_consumed
-                    ):
-                        gesture_controller._last_click_consumed = True
-                        state = _STATE_GAZE_FOLLOW
-                        gesture_controller.click_enabled = False
-                        # Require the user to release the pucker before another
-                        # entry can fire.
-                        entry_click_armed = False
-                        frozen_center = None
-                        cursor._last_step_time = None
+                    # Exit re-arm: pucker relaxing re-arms exit (pucker-only check
+                    # avoids being blocked by a high resting tuck value).
+                    if pucker_now < pucker_release:
+                        exit_armed = True
+
+                    # Exit: pucker (left click) or tuck (right click) held for
+                    # _GESTURE_HOLD_SEC while armed. Hold debounce prevents brief
+                    # blendshape spikes from head movement triggering a false exit.
+                    exit_gesture = (
+                        pucker_now >= pucker_trigger_high or tuck_now >= tuck_trigger_high
+                    )
+                    if exit_armed and exit_gesture:
+                        if exit_hold_start is None:
+                            exit_hold_start = now
+                        if now - exit_hold_start >= _GESTURE_HOLD_SEC:
+                            exit_hold_start = None
+                            exit_armed = False
+                            if pucker_now >= pucker_trigger_high:
+                                cursor.left_click()
+                            else:
+                                cursor.right_click()
+                            state = _STATE_GAZE_FOLLOW
+                            frozen_center = None
+                            cursor._last_step_time = None
+                    else:
+                        exit_hold_start = None   # gesture dropped or not armed, reset timer
 
                 pre_scroll = gesture_controller.active_scroll_gesture
                 # This mode owns cursor placement in both states (none in
