@@ -214,7 +214,7 @@ class MainWindow(QMainWindow):
                     cal_data = self._profile_manager.load_stereo_calibration(
                         self._active_profile.id
                     )
-                elif mode_id == "eye_gaze_bubble":
+                elif mode_id in ("eye_gaze_bubble", "hybrid_bubble_lock"):
                     cal_data = self._profile_manager.load_calibration(
                         self._active_profile.id, "eye_gaze"
                     )
@@ -406,7 +406,10 @@ class MainWindow(QMainWindow):
 
         self._tracking_mode = self._pending_mode
 
-        if getattr(self._tracking_mode, "id", None) == "eye_gaze_bubble":
+        if getattr(self._tracking_mode, "id", None) in (
+            "eye_gaze_bubble",
+            "hybrid_bubble_lock",
+        ):
             from src.ui.overlays.gaze_bubble_overlay import GazeBubbleOverlay
             from src.ui.overlays.gaze_signal_proxy import GazeSignalProxy
 

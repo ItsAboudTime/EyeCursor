@@ -17,6 +17,7 @@ def _register_modes(registry: ModeRegistry) -> None:
     from src.core.modes.hybrid.anchor_offset import HybridAnchorOffsetMode
     from src.core.modes.hybrid.smooth_fade import HybridSmoothFadeMode
     from src.core.modes.hybrid.safe_zone_blend import HybridSafeZoneBlendMode
+    from src.core.modes.hybrid.bubble_lock import HybridBubbleLockMode
 
     registry.register(OneCameraHeadPoseMode)
     registry.register(TwoCameraHeadPoseMode)
@@ -26,6 +27,7 @@ def _register_modes(registry: ModeRegistry) -> None:
     registry.register(HybridAnchorOffsetMode)
     registry.register(HybridSmoothFadeMode)
     registry.register(HybridSafeZoneBlendMode)
+    registry.register(HybridBubbleLockMode)
 
 
 def initialize_app() -> MainWindow:
