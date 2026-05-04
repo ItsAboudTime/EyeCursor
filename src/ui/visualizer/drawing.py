@@ -94,9 +94,9 @@ def draw_head_pose_arrow(
         float(forward_axis_3d[2]),
     )
     ox, oy = int(nose_xy[0]), int(nose_xy[1])
-    # Forward axis points away from the camera (-Z). Draw the projection of the
-    # axis direction in image space; flip Y because image Y grows downward.
-    tip = (int(ox + fx * length_px), int(oy - fy * length_px))
+    # Project the face Z axis (camera-space) onto image axes.
+    # Camera X/Y already match image X/Y (both right-down), so no sign flip needed.
+    tip = (int(ox + fx * length_px), int(oy + fy * length_px))
     cv2.arrowedLine(out, (ox, oy), tip, color, thickness, tipLength=0.25, line_type=cv2.LINE_AA)
     return out
 
@@ -237,6 +237,57 @@ def render_screen_target_preview(
     return canvas
 
 
+def render_bubble_screen_preview(
+    target_xy: Optional[Tuple[int, int]],
+    screen_bounds: Optional[Tuple[int, int, int, int]],
+    bubble_radius_px: int = 120,
+    canvas_size: Tuple[int, int] = (480, 270),
+) -> np.ndarray:
+    """Render the virtual screen with a bubble circle at the gaze target position."""
+    cw, ch = canvas_size
+    canvas = np.full((ch, cw, 3), 30, dtype=np.uint8)
+    cv2.rectangle(canvas, (4, 4), (cw - 5, ch - 5), (90, 110, 160), 2)
+
+    if target_xy is None or screen_bounds is None:
+        cv2.putText(
+            canvas,
+            "no target",
+            (16, ch // 2),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (160, 160, 160),
+            1,
+            cv2.LINE_AA,
+        )
+        return canvas
+
+    minx, miny, maxx, maxy = screen_bounds
+    screen_w = max(1, maxx - minx + 1)
+    screen_h = max(1, maxy - miny + 1)
+    nx = max(0.0, min(1.0, (target_xy[0] - minx) / screen_w))
+    ny = max(0.0, min(1.0, (target_xy[1] - miny) / screen_h))
+    bx = int(nx * (cw - 1))
+    by = int(ny * (ch - 1))
+
+    canvas_radius = max(4, int(bubble_radius_px * cw / screen_w))
+    bubble_color = (40, 160, 230)
+    cv2.circle(canvas, (bx, by), canvas_radius, bubble_color, 2, cv2.LINE_AA)
+    cv2.circle(canvas, (bx, by), 5, bubble_color, -1, cv2.LINE_AA)
+
+    label = f"({target_xy[0]}, {target_xy[1]})"
+    cv2.putText(
+        canvas,
+        label,
+        (12, ch - 14),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        (220, 220, 220),
+        1,
+        cv2.LINE_AA,
+    )
+    return canvas
+
+
 def forward_axis_from_matrix(matrix: Optional[np.ndarray]) -> Optional[np.ndarray]:
     if matrix is None:
         return None
@@ -246,11 +297,10 @@ def forward_axis_from_matrix(matrix: Optional[np.ndarray]) -> Optional[np.ndarra
     if m.shape != (4, 4):
         return None
     rotation = m[:3, :3]
-    forward = -rotation[:, 2]
+    # The face model's Z column is the direction the face is looking in camera space.
+    # Using it directly gives correct left/right/up/down projection onto the image plane.
+    forward = rotation[:, 2].copy()
     n = float(np.linalg.norm(forward))
     if n < 1e-9:
         return None
-    forward = forward / n
-    if forward[2] > 0.0:
-        forward = -forward
-    return forward
+    return forward / n

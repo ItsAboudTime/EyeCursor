@@ -225,7 +225,7 @@ class TwoCameraPanel(QWidget):
         gesture_state = payload.get("gesture_state") or {}
 
         if depth is not None:
-            self._depth_label.setText(f"Depth: {depth:.3f} m")
+            self._depth_label.setText(f"Depth: {-depth:.3f} m")
         else:
             self._depth_label.setText("Depth: --")
         if yaw is not None and pitch is not None:

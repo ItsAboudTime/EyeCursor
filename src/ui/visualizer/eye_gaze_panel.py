@@ -15,10 +15,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.ui.overlays.gaze_bubble_overlay import BUBBLE_RADIUS_PX
 from src.ui.visualizer.drawing import (
     bgr_to_qpixmap,
     draw_dlib_landmarks,
     draw_gaze_arrow_on_patch,
+    render_bubble_screen_preview,
     render_screen_target_preview,
     rgb_to_qpixmap,
 )
@@ -66,10 +68,11 @@ class EyeGazePanel(QWidget):
         self._patch_label = _frame_label(min_w=240, min_h=240)
         self._target_label = _frame_label(min_w=320, min_h=180)
 
+        target_title = "4. Bubble position" if self._show_bubble_indicator else "4. Screen target"
         grid.addWidget(_labeled("1. Raw frame", self._raw_label), 0, 0)
         grid.addWidget(_labeled("2. Face detection + dlib landmarks", self._detection_label), 0, 1)
         grid.addWidget(_labeled("3. Normalized face patch + gaze vector", self._patch_label), 1, 0)
-        grid.addWidget(_labeled("4. Screen target", self._target_label), 1, 1)
+        grid.addWidget(_labeled(target_title, self._target_label), 1, 1)
 
         if self._show_bubble_indicator:
             self._yaw_pitch_label = QLabel("Yaw: --  Pitch: --")
@@ -120,14 +123,23 @@ class EyeGazePanel(QWidget):
             with_arrow = draw_gaze_arrow_on_patch(patch_rgb, pitch_rad, yaw_rad)
             self._set_pixmap_rgb(self._patch_label, with_arrow)
 
-        canvas = render_screen_target_preview(
-            target_xy=tuple(target) if target is not None else None,
-            screen_bounds=tuple(screen_bounds) if screen_bounds is not None else None,
-            canvas_size=(
-                max(320, self._target_label.width()),
-                max(180, self._target_label.height()),
-            ),
+        canvas_size = (
+            max(320, self._target_label.width()),
+            max(180, self._target_label.height()),
         )
+        if self._show_bubble_indicator:
+            canvas = render_bubble_screen_preview(
+                target_xy=tuple(target) if target is not None else None,
+                screen_bounds=tuple(screen_bounds) if screen_bounds is not None else None,
+                bubble_radius_px=BUBBLE_RADIUS_PX,
+                canvas_size=canvas_size,
+            )
+        else:
+            canvas = render_screen_target_preview(
+                target_xy=tuple(target) if target is not None else None,
+                screen_bounds=tuple(screen_bounds) if screen_bounds is not None else None,
+                canvas_size=canvas_size,
+            )
         self._set_pixmap_bgr(self._target_label, canvas)
 
         if self._yaw_pitch_label is not None:

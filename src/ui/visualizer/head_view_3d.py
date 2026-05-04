@@ -180,7 +180,7 @@ class HeadView3D(QtWidgets.QWidget):
         if self._depth is not None:
             painter.drawText(
                 QtCore.QPointF(15.0, 25.0),
-                f"Depth (Z): {self._depth:.3f} m",
+                f"Depth (Z): {-self._depth:.3f} m",
             )
 
         painter.end()

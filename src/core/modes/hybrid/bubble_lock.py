@@ -71,6 +71,7 @@ class HybridBubbleLockMode(TrackingMode):
         self._cursor = None
         self._gesture_controller: Optional[GestureController] = None
         self._gaze_controller = None
+        self._last_bubble_click_side: Optional[str] = None
 
     def validate_requirements(
         self,
@@ -329,8 +330,10 @@ class HybridBubbleLockMode(TrackingMode):
                             exit_armed = False
                             if pucker_now >= pucker_trigger_high:
                                 cursor.left_click()
+                                self._last_bubble_click_side = "left"
                             else:
                                 cursor.right_click()
+                                self._last_bubble_click_side = "right"
                             state = _STATE_GAZE_FOLLOW
                             frozen_center = None
                             cursor._last_step_time = None
@@ -364,6 +367,8 @@ class HybridBubbleLockMode(TrackingMode):
                     screen_w=screen_w,
                     screen_h=screen_h,
                     virtual_bounds=(minx, miny, maxx, maxy),
+                    entry_armed=entry_armed,
+                    exit_armed=exit_armed,
                 )
         finally:
             gesture_controller.shutdown()
@@ -391,6 +396,8 @@ class HybridBubbleLockMode(TrackingMode):
         screen_w: int,
         screen_h: int,
         virtual_bounds: Tuple[int, int, int, int],
+        entry_armed: bool,
+        exit_armed: bool,
     ) -> None:
         callback = self.visualization_callback
         if callback is None:
@@ -401,7 +408,7 @@ class HybridBubbleLockMode(TrackingMode):
         self._last_viz_emit = now
 
         last_action = derive_last_action(
-            last_click_side=gesture_controller._last_click_side,
+            last_click_side=self._last_bubble_click_side,
             pre_scroll=pre_scroll,
             post_scroll=gesture_controller.active_scroll_gesture,
         )
@@ -415,18 +422,19 @@ class HybridBubbleLockMode(TrackingMode):
         pucker = pucker_value(blendshapes)
         tuck = tuck_value(blendshapes)
 
+        click_armed = entry_armed if state == _STATE_GAZE_FOLLOW else exit_armed
         gesture_state = {
             "active_scroll_gesture": gesture_controller.active_scroll_gesture,
-            "click_enabled": gesture_controller.click_enabled,
+            "click_enabled": True,
             "scroll_enabled": gesture_controller.scroll_enabled,
-            "click_armed": gesture_controller._click_armed,
-            "last_click_side": gesture_controller._last_click_side,
+            "click_armed": click_armed,
+            "last_click_side": self._last_bubble_click_side,
             "smirk_left_activation": smirk_left,
             "smirk_right_activation": smirk_right,
             "pucker_value": pucker,
             "tuck_value": tuck,
-            "held_button": gesture_controller._held_button,
-            "is_held": gesture_controller._held_button is not None,
+            "held_button": None,
+            "is_held": False,
             "last_action": last_action,
             "last_action_at": now if last_action else None,
         }
@@ -460,6 +468,8 @@ class HybridBubbleLockMode(TrackingMode):
             "bubble_lock_frozen_center": tuple(frozen_center) if frozen_center is not None else None,
             "bubble_lock_radius_px": int(BUBBLE_RADIUS_PX),
             "target_screen_xy": tuple(gaze_target) if gaze_target is not None else None,
+            "points_3d": result.points_3d,
+            "depth": result.depth,
             "paused": self._paused,
         }
         try:

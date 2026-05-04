@@ -25,6 +25,7 @@ from src.ui.visualizer.drawing import (
     forward_axis_from_matrix,
     rgb_to_qpixmap,
 )
+from src.ui.visualizer.head_view_3d import HeadView3D
 from src.ui.visualizer.one_camera_panel import _GESTURE_ACTION_LABEL
 
 
@@ -129,14 +130,14 @@ class BubbleLockPanel(QWidget):
         grid = QGridLayout()
         grid.setSpacing(10)
 
-        self._raw_label       = _frame_label()
-        self._landmarks_label = _frame_label()
         self._patch_label     = _frame_label(min_w=220, min_h=220)
+        self._landmarks_label = _frame_label()
+        self._head_view       = HeadView3D()
         self._target_label    = _frame_label(min_w=320, min_h=180)
 
-        grid.addWidget(_labeled("1. Raw frame (left cam)", self._raw_label), 0, 0)
+        grid.addWidget(_labeled("1. Gaze face patch + vector", self._patch_label), 0, 0)
         grid.addWidget(_labeled("2. MediaPipe landmarks + head pose", self._landmarks_label), 0, 1)
-        grid.addWidget(_labeled("3. Gaze face patch + vector", self._patch_label), 1, 0)
+        grid.addWidget(_labeled("3. 3D head model (triangulated)", self._head_view), 1, 0)
         grid.addWidget(_labeled("4. Bubble & cursor position", self._target_label), 1, 1)
 
         for r in range(2):
@@ -205,21 +206,27 @@ class BubbleLockPanel(QWidget):
         col.setSpacing(4)
 
         badges = QHBoxLayout()
+        self._click_badge = QLabel("Click: ?")
         self._scroll_badge = QLabel("Scroll: ?")
-        self._scroll_badge.setStyleSheet(
-            "padding: 4px 10px; border-radius: 10px; background: #3a3f4b;"
-            " color: #dfe6e9; font-size: 11px;"
-        )
-        badges.addWidget(self._scroll_badge)
+        for badge in (self._click_badge, self._scroll_badge):
+            badge.setStyleSheet(
+                "padding: 4px 10px; border-radius: 10px; background: #3a3f4b;"
+                " color: #dfe6e9; font-size: 11px;"
+            )
+            badges.addWidget(badge)
         badges.addStretch(1)
         col.addLayout(badges)
 
+        self._last_click_label  = QLabel("Last click: --")
+        self._click_state_label = QLabel("Click state: armed")
         self._pucker_label      = QLabel("Pucker: --")
         self._tuck_label        = QLabel("Tuck: --")
         self._smirk_left_label  = QLabel("Smirk L: --")
         self._smirk_right_label = QLabel("Smirk R: --")
         self._scroll_state_label = QLabel("Scroll state: idle")
         for lbl in (
+            self._last_click_label,
+            self._click_state_label,
             self._pucker_label,
             self._tuck_label,
             self._smirk_left_label,
@@ -274,11 +281,15 @@ class BubbleLockPanel(QWidget):
         screen_pos    = payload.get("screen_position")
         screen_w      = int(payload.get("screen_width") or 1)
         screen_h      = int(payload.get("screen_height") or 1)
+        points_3d     = payload.get("points_3d")
+        depth         = payload.get("depth")
         gesture_state = payload.get("gesture_state") or {}
 
-        # 1. Raw frame -------------------------------------------------
-        if frame_bgr is not None:
-            self._set_bgr(self._raw_label, frame_bgr)
+        # 1. Gaze face patch (skipped during FROZEN) -------------------
+        if face_patch_bgr is not None and pitch_rad is not None and yaw_rad is not None:
+            patch_rgb  = cv2.cvtColor(face_patch_bgr, cv2.COLOR_BGR2RGB)
+            with_arrow = draw_gaze_arrow_on_patch(patch_rgb, pitch_rad, yaw_rad)
+            self._set_rgb(self._patch_label, with_arrow)
 
         # 2. Landmarks + head-pose arrow --------------------------------
         if frame_bgr is not None:
@@ -291,11 +302,8 @@ class BubbleLockPanel(QWidget):
                 annotated = draw_head_pose_arrow(annotated, nose_xy, forward)
             self._set_bgr(self._landmarks_label, annotated)
 
-        # 3. Gaze face patch (skipped during FROZEN) -------------------
-        if face_patch_bgr is not None and pitch_rad is not None and yaw_rad is not None:
-            patch_rgb  = cv2.cvtColor(face_patch_bgr, cv2.COLOR_BGR2RGB)
-            with_arrow = draw_gaze_arrow_on_patch(patch_rgb, pitch_rad, yaw_rad)
-            self._set_rgb(self._patch_label, with_arrow)
+        # 3. 3D head model ---------------------------------------------
+        self._head_view.update_points(points_3d, depth)
 
         # 4. Bubble & cursor -------------------------------------------
         bubble_center = frozen_center if state == "frozen" else (bubble_target or gaze_target)
@@ -353,7 +361,7 @@ class BubbleLockPanel(QWidget):
             self._gaze_target_label.setText("Gaze target: --")
 
         if yaw_deg is not None and pitch_deg is not None:
-            self._head_angle_label.setText(f"Head yaw: {yaw_deg:+.1f}°  Pitch: {pitch_deg:+.1f}°")
+            self._head_angle_label.setText(f"Head yaw: {yaw_deg:+.1f}°  Pitch: {-pitch_deg:+.1f}°")
         else:
             self._head_angle_label.setText("Head yaw: --  Pitch: --")
 
@@ -365,13 +373,36 @@ class BubbleLockPanel(QWidget):
             self._gaze_angle_label.setText("Gaze yaw: --  Pitch: --")
 
         # Gesture telemetry --------------------------------------------
+        click_enabled = bool(gesture_state.get("click_enabled", False))
         scroll_enabled = bool(gesture_state.get("scroll_enabled", False))
+        self._click_badge.setText(f"Click: {'on' if click_enabled else 'off'}")
         self._scroll_badge.setText(f"Scroll: {'on' if scroll_enabled else 'off'}")
+        self._click_badge.setStyleSheet(
+            "padding: 4px 10px; border-radius: 10px;"
+            f" background: {'#00b894' if click_enabled else '#3a3f4b'};"
+            " color: white; font-size: 11px;"
+        )
         self._scroll_badge.setStyleSheet(
             "padding: 4px 10px; border-radius: 10px;"
             f" background: {'#00b894' if scroll_enabled else '#3a3f4b'};"
             " color: white; font-size: 11px;"
         )
+
+        last_click = gesture_state.get("last_click_side")
+        self._last_click_label.setText(
+            f"Last click: {last_click if last_click else '--'}"
+        )
+        is_held = bool(gesture_state.get("is_held", False))
+        held_button = gesture_state.get("held_button")
+        click_armed = gesture_state.get("click_armed", True)
+        if is_held:
+            self._click_state_label.setText(
+                f"Click state: holding {held_button}" if held_button else "Click state: holding"
+            )
+        elif click_armed:
+            self._click_state_label.setText("Click state: armed")
+        else:
+            self._click_state_label.setText("Click state: waiting for relax")
 
         pucker = gesture_state.get("pucker_value")
         tuck   = gesture_state.get("tuck_value")
