@@ -4,7 +4,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import cv2
 
 from src.capture.frame_capture import SINGLE_CAM_ID
-from src.capture.supervisor import CaptureSupervisor
+from src.capture.session import assert_capture_alive, capture_session
 from src.core.devices.camera_identity import warn_if_single_camera_mismatch
 from src.core.modes._viz_helpers import derive_last_action
 from src.core.modes.base import TrackingMode
@@ -153,16 +153,6 @@ class OneCameraHeadPoseMode(TrackingMode):
             if warning:
                 print(f"[mode] {warning}")
 
-        supervisor = CaptureSupervisor(camera_indices=[selected_cameras[0]])
-        try:
-            supervisor.start(timeout=5.0)
-        except RuntimeError as exc:
-            raise RuntimeError(
-                f"Could not open Camera {selected_cameras[0]}. "
-                f"Try selecting another camera or closing other apps that may be using it. "
-                f"Detail: {exc}"
-            ) from exc
-
         pipeline = FaceAnalysisPipeline(
             yaw_span=calib["yaw_span"],
             pitch_span=calib["pitch_span"],
@@ -182,48 +172,44 @@ class OneCameraHeadPoseMode(TrackingMode):
         _apply_gesture_settings(gesture_controller, settings)
 
         try:
-            last_ts = 0.0
-            while not self._should_stop:
-                if self._paused:
-                    time.sleep(0.05)
-                    continue
+            with capture_session([selected_cameras[0]]) as supervisor:
+                last_ts = 0.0
+                while not self._should_stop:
+                    if self._paused:
+                        time.sleep(0.05)
+                        continue
 
-                if not supervisor.is_alive():
-                    tail = supervisor.last_stderr_lines(3)
-                    raise RuntimeError(
-                        f"Capture process exited unexpectedly. Last stderr: {tail}"
+                    assert_capture_alive(supervisor)
+
+                    got = supervisor.receiver.get_latest_bgr(
+                        cam_id=SINGLE_CAM_ID, since=last_ts, timeout=0.5
                     )
+                    if got is None:
+                        continue
+                    frame, last_ts = got
 
-                got = supervisor.receiver.get_latest_bgr(
-                    cam_id=SINGLE_CAM_ID, since=last_ts, timeout=0.5
-                )
-                if got is None:
-                    continue
-                frame, last_ts = got
-
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                result = pipeline.analyze(
-                    rgb_frame=rgb,
-                    frame_width=frame.shape[1],
-                    frame_height=frame.shape[0],
-                    screen_width=screen_w,
-                    screen_height=screen_h,
-                )
-                if result is not None:
-                    pre_scroll = gesture_controller.active_scroll_gesture
-                    gesture_controller.handle_face_analysis(result, now=time.time())
-                    self._maybe_emit_visualization(
-                        frame_bgr=frame,
-                        result=result,
-                        gesture_controller=gesture_controller,
-                        pre_scroll=pre_scroll,
-                        screen_w=screen_w,
-                        screen_h=screen_h,
-                        virtual_bounds=(minx, miny, maxx, maxy),
+                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    result = pipeline.analyze(
+                        rgb_frame=rgb,
+                        frame_width=frame.shape[1],
+                        frame_height=frame.shape[0],
+                        screen_width=screen_w,
+                        screen_height=screen_h,
                     )
+                    if result is not None:
+                        pre_scroll = gesture_controller.active_scroll_gesture
+                        gesture_controller.handle_face_analysis(result, now=time.time())
+                        self._maybe_emit_visualization(
+                            frame_bgr=frame,
+                            result=result,
+                            gesture_controller=gesture_controller,
+                            pre_scroll=pre_scroll,
+                            screen_w=screen_w,
+                            screen_h=screen_h,
+                            virtual_bounds=(minx, miny, maxx, maxy),
+                        )
         finally:
             gesture_controller.shutdown()
-            supervisor.stop()
             pipeline.release()
             self._cursor = None
             self._gesture_controller = None

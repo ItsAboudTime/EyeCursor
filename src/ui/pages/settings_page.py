@@ -5,7 +5,6 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QLabel,
-    QSpacerItem,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -80,7 +79,9 @@ class SettingsPage(QWidget):
         self._click_enabled.setChecked(True)
         self._click_enabled.setStyleSheet(checkbox_style)
         gestures_form.addRow(self._click_enabled)
-        gestures_form.addRow(QSpacerItem(0, 8))
+        _click_scroll_spacer = QWidget()
+        _click_scroll_spacer.setFixedHeight(8)
+        gestures_form.addRow(_click_scroll_spacer)
 
         self._scroll_enabled = QCheckBox("Enable scroll gestures (smirk left / right)")
         self._scroll_enabled.setChecked(True)
