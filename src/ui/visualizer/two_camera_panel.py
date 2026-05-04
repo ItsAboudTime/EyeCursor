@@ -229,7 +229,7 @@ class TwoCameraPanel(QWidget):
         else:
             self._depth_label.setText("Depth: --")
         if yaw is not None and pitch is not None:
-            self._yaw_pitch_label.setText(f"Yaw: {yaw:+.1f}°  Pitch: {pitch:+.1f}°")
+            self._yaw_pitch_label.setText(f"Yaw: {yaw:+.1f}°  Pitch: {-pitch:+.1f}°")
         else:
             self._yaw_pitch_label.setText("Yaw: --  Pitch: --")
         if screen_position is not None:
