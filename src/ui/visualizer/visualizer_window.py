@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.ui.visualizer.bubble_lock_panel import BubbleLockPanel
 from src.ui.visualizer.eye_gaze_panel import EyeGazePanel
 from src.ui.visualizer.one_camera_panel import OneCameraPanel
 from src.ui.visualizer.two_camera_panel import TwoCameraPanel
@@ -66,6 +67,8 @@ class VisualizerWindow(QMainWindow):
             return EyeGazePanel(show_bubble_indicator=False)
         if mode_id == "eye_gaze_bubble":
             return EyeGazePanel(show_bubble_indicator=True)
+        if mode_id == "hybrid_bubble_lock":
+            return BubbleLockPanel()
         placeholder = QLabel(f"No visualizer available for mode: {mode_id}")
         placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         placeholder.setStyleSheet("color: #b2bec3; font-size: 14px;")

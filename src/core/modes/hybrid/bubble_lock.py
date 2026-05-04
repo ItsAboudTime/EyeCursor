@@ -1,5 +1,5 @@
-"""Mode: Bubble Lock -- gaze drives a bubble; pucker freezes it; head pose
-fine-tunes the cursor inside the frozen bubble; another click commits and
+"""Mode: Bubble Lock -- gaze drives a bubble; pucker freezes it; stereo head
+pose fine-tunes the cursor inside the frozen bubble; another click commits and
 returns to gaze-following."""
 
 import pathlib
@@ -9,6 +9,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+from src.core.devices.camera_identity import match_stereo_cameras
 from src.core.modes._viz_helpers import derive_last_action
 from src.core.modes.base import TrackingMode
 from src.core.modes.eye_gaze import _apply_gaze_controller_settings
@@ -17,7 +18,10 @@ from src.core.modes.one_camera_head_pose import (
     _build_gesture_controller,
 )
 from src.face_tracking.controllers.gesture import GestureController
-from src.face_tracking.pipelines.face_analysis import FaceAnalysisPipeline
+from src.face_tracking.pipelines.stereo_face_analysis import (
+    StereoCalibration,
+    StereoFaceAnalysisPipeline,
+)
 from src.face_tracking.signals.blendshapes import (
     compute_smirk_activations,
     pucker_value,
@@ -46,14 +50,15 @@ def _apply_bubble_lock_gesture_settings(gesture_controller, settings: dict) -> N
 
 class HybridBubbleLockMode(TrackingMode):
     id = "hybrid_bubble_lock"
-    display_name = "Hybrid: Bubble Lock (experimental)"
+    display_name = "Bubble Lock"
     description = (
-        "Gaze drives a bubble; pucker freezes it and switches to head pose for "
-        "fine cursor control inside the bubble. Click again (left or right) to "
-        "commit and resume gaze-following."
+        "Gaze drives a bubble; pucker freezes it and switches to stereo head pose "
+        "for fine cursor control inside the bubble. Click again (left or right) to "
+        "commit and resume gaze-following. Requires two cameras."
     )
-    required_camera_count = 1
+    required_camera_count = 2
     requires_head_pose_calibration = True
+    requires_stereo_calibration = True
     requires_gaze_calibration = True
     requires_facial_gesture_calibration = True
 
@@ -72,10 +77,18 @@ class HybridBubbleLockMode(TrackingMode):
         profile_calibrations: Dict[str, Optional[dict]],
         selected_cameras: List[int],
     ) -> Tuple[bool, str]:
-        if len(selected_cameras) < 1:
-            return False, "No camera selected."
-        if not profile_calibrations.get("one_camera_head_pose"):
-            return False, "Head pose calibration required."
+        if len(selected_cameras) < 2:
+            return False, "Two cameras are required."
+        stereo = profile_calibrations.get("stereo")
+        if not stereo:
+            return False, "Stereo calibration required."
+        match = match_stereo_cameras(stereo, selected_cameras)
+        if not match.ok:
+            return False, match.reason
+        selected_cameras[:] = match.resolved_indices
+        if not profile_calibrations.get("two_camera_head_pose"):
+            if not profile_calibrations.get("one_camera_head_pose"):
+                return False, "Head pose calibration required."
         if not profile_calibrations.get("facial_gestures"):
             return False, "Facial gesture calibration required."
         gaze_calib = profile_calibrations.get("eye_gaze")
@@ -105,21 +118,38 @@ class HybridBubbleLockMode(TrackingMode):
         from src.eye_tracking.controllers.gaze_cursor_controller import GazeCursorController
         from src.eye_tracking.pipelines.eth_xgaze_inference import ETHXGazeInference
 
-        calib_head = profile_calibrations["one_camera_head_pose"]
+        stereo_data = profile_calibrations["stereo"]
+        calib_head = (
+            profile_calibrations.get("two_camera_head_pose")
+            or profile_calibrations["one_camera_head_pose"]
+        )
         calib_gaze = profile_calibrations["eye_gaze"]
         gesture_calib = profile_calibrations.get("facial_gestures")
 
-        camera = cv2.VideoCapture(selected_cameras[0])
-        if not camera.isOpened():
+        stereo_calib = StereoCalibration(
+            k1=np.array(stereo_data["K1"], dtype=np.float64),
+            d1=np.array(stereo_data["D1"], dtype=np.float64),
+            k2=np.array(stereo_data["K2"], dtype=np.float64),
+            d2=np.array(stereo_data["D2"], dtype=np.float64),
+            r=np.array(stereo_data["R"], dtype=np.float64),
+            t=np.array(stereo_data["T"], dtype=np.float64).reshape(3, 1),
+        )
+
+        left_cam = cv2.VideoCapture(selected_cameras[0])
+        right_cam = cv2.VideoCapture(selected_cameras[1])
+        if not left_cam.isOpened() or not right_cam.isOpened():
+            left_cam.release()
+            right_cam.release()
             raise RuntimeError(
-                f"Could not open Camera {selected_cameras[0]}. "
-                "Try selecting another camera or closing other apps that may be using it."
+                "Could not open one or both cameras. "
+                "Try closing other apps that may be using them."
             )
 
-        head_pipeline = FaceAnalysisPipeline(
+        head_pipeline = StereoFaceAnalysisPipeline(
+            stereo_calibration=stereo_calib,
             yaw_span=calib_head["yaw_span"],
             pitch_span=calib_head["pitch_span"],
-            ema_alpha=calib_head.get("ema_alpha", 0.1),
+            ema_alpha=calib_head.get("ema_alpha", 0.25),
         )
         head_pipeline.calibrate_to_center(
             calib_head["center_yaw"], calib_head["center_pitch"]
@@ -186,15 +216,20 @@ class HybridBubbleLockMode(TrackingMode):
                     time.sleep(0.05)
                     continue
 
-                ok, frame = camera.read()
-                if not ok:
+                ok_l, frame_l = left_cam.read()
+                ok_r, frame_r = right_cam.read()
+                if not ok_l or not ok_r:
                     continue
 
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                rgb_l = cv2.cvtColor(frame_l, cv2.COLOR_BGR2RGB)
+                rgb_r = cv2.cvtColor(frame_r, cv2.COLOR_BGR2RGB)
                 result = head_pipeline.analyze(
-                    rgb_frame=rgb,
-                    frame_width=frame.shape[1],
-                    frame_height=frame.shape[0],
+                    left_rgb_frame=rgb_l,
+                    right_rgb_frame=rgb_r,
+                    left_frame_width=frame_l.shape[1],
+                    left_frame_height=frame_l.shape[0],
+                    right_frame_width=frame_r.shape[1],
+                    right_frame_height=frame_r.shape[0],
                     screen_width=screen_w,
                     screen_height=screen_h,
                 )
@@ -209,7 +244,7 @@ class HybridBubbleLockMode(TrackingMode):
                 gaze_yaw_rad: Optional[float] = None
                 face_patch_bgr = None
                 if state == _STATE_GAZE_FOLLOW:
-                    gz = inference.infer_from_frame(frame)
+                    gz = inference.infer_from_frame(frame_l)
                     if gz is not None:
                         gaze_pitch_rad, gaze_yaw_rad, face_patch_bgr, _ = gz
                         t = gaze_controller.target_from_gaze(
@@ -314,7 +349,7 @@ class HybridBubbleLockMode(TrackingMode):
                 result.screen_position = saved_pos
 
                 self._maybe_emit_visualization(
-                    frame_bgr=frame,
+                    frame_bgr=frame_l,
                     result=result,
                     state=state,
                     frozen_center=frozen_center,
@@ -332,7 +367,8 @@ class HybridBubbleLockMode(TrackingMode):
                 )
         finally:
             gesture_controller.shutdown()
-            camera.release()
+            left_cam.release()
+            right_cam.release()
             head_pipeline.release()
             self._cursor = None
             self._gesture_controller = None

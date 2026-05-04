@@ -23,11 +23,11 @@ def _register_modes(registry: ModeRegistry) -> None:
     registry.register(TwoCameraHeadPoseMode)
     registry.register(EyeGazeMode)
     registry.register(EyeGazeBubbleMode)
+    registry.register(HybridBubbleLockMode)
     registry.register(HybridSafeZoneMode)
     registry.register(HybridAnchorOffsetMode)
     registry.register(HybridSmoothFadeMode)
     registry.register(HybridSafeZoneBlendMode)
-    registry.register(HybridBubbleLockMode)
 
 
 def initialize_app() -> MainWindow:
