@@ -11,6 +11,7 @@ from src.capture.session import assert_capture_alive, capture_session
 from src.core.devices.camera_identity import match_stereo_cameras
 from src.core.modes._viz_helpers import derive_last_action
 from src.core.modes.base import TrackingMode
+from src.core.modes.idle import IdleController, apply_idle_settings
 from src.core.modes.one_camera_head_pose import (
     _apply_cursor_settings,
     _apply_gesture_settings,
@@ -86,6 +87,7 @@ class TwoCameraHeadPoseMode(TrackingMode):
         self._last_viz_emit = 0.0
         self._cursor = None
         self._gesture_controller: Optional[GestureController] = None
+        self._idle: Optional[IdleController] = None
 
     def validate_requirements(
         self,
@@ -157,8 +159,13 @@ class TwoCameraHeadPoseMode(TrackingMode):
         screen_h = maxy - miny + 1
 
         gesture_controller = _build_gesture_controller(cursor, gesture_calib)
+        idle = IdleController(
+            idle_after_frames=settings.get("idle_after_frames", 30),
+            idle_sleep_s=settings.get("idle_sleep_s", 0.15),
+        )
         self._cursor = cursor
         self._gesture_controller = gesture_controller
+        self._idle = idle
         _apply_cursor_settings(cursor, settings)
         _apply_gesture_settings(gesture_controller, settings)
 
@@ -203,26 +210,42 @@ class TwoCameraHeadPoseMode(TrackingMode):
                         screen_width=screen_w,
                         screen_height=screen_h,
                     )
-                    if result is not None:
-                        pre_scroll = gesture_controller.active_scroll_gesture
-                        gesture_controller.handle_face_analysis(result, now=time.time())
-                        broadcaster.send(result.depth)
-                        self._maybe_emit_visualization(
-                            frame_left=frame_l,
-                            frame_right=frame_r,
-                            result=result,
-                            gesture_controller=gesture_controller,
-                            pre_scroll=pre_scroll,
-                            screen_w=screen_w,
-                            screen_h=screen_h,
-                            virtual_bounds=(minx, miny, maxx, maxy),
-                        )
+                    transitioned = idle.observe(result is not None)
+                    if result is None:
+                        if transitioned or idle.is_idle:
+                            self._emit_idle_visualization(
+                                frame_left=frame_l,
+                                frame_right=frame_r,
+                                idle=idle,
+                                screen_w=screen_w,
+                                screen_h=screen_h,
+                                virtual_bounds=(minx, miny, maxx, maxy),
+                                force=transitioned,
+                            )
+                        idle.maybe_sleep()
+                        continue
+                    pre_scroll = gesture_controller.active_scroll_gesture
+                    gesture_controller.handle_face_analysis(result, now=time.time())
+                    broadcaster.send(result.depth)
+                    self._maybe_emit_visualization(
+                        frame_left=frame_l,
+                        frame_right=frame_r,
+                        result=result,
+                        gesture_controller=gesture_controller,
+                        pre_scroll=pre_scroll,
+                        screen_w=screen_w,
+                        screen_h=screen_h,
+                        virtual_bounds=(minx, miny, maxx, maxy),
+                        idle=idle,
+                        force=transitioned,
+                    )
         finally:
             broadcaster.stop()
             gesture_controller.shutdown()
             pipeline.release()
             self._cursor = None
             self._gesture_controller = None
+            self._idle = None
 
     def _maybe_emit_visualization(
         self,
@@ -234,12 +257,14 @@ class TwoCameraHeadPoseMode(TrackingMode):
         screen_w: int,
         screen_h: int,
         virtual_bounds: Tuple[int, int, int, int],
+        idle: Optional[IdleController] = None,
+        force: bool = False,
     ) -> None:
         callback = self.visualization_callback
         if callback is None:
             return
         now = time.monotonic()
-        if (now - self._last_viz_emit) < _VIZ_MIN_INTERVAL:
+        if not force and (now - self._last_viz_emit) < _VIZ_MIN_INTERVAL:
             return
         self._last_viz_emit = now
 
@@ -306,6 +331,58 @@ class TwoCameraHeadPoseMode(TrackingMode):
             "blendshapes": blendshapes,
             "gesture_state": gesture_state,
             "paused": self._paused,
+            "idle": bool(idle.is_idle) if idle is not None else False,
+            "idle_streak_frames": int(idle.streak_frames) if idle is not None else 0,
+        }
+        try:
+            callback(payload)
+        except Exception:
+            pass
+
+    def _emit_idle_visualization(
+        self,
+        frame_left,
+        frame_right,
+        idle: IdleController,
+        screen_w: int,
+        screen_h: int,
+        virtual_bounds: Tuple[int, int, int, int],
+        force: bool = False,
+    ) -> None:
+        """Minimal payload while no face is being tracked. See OneCameraHeadPoseMode."""
+        callback = self.visualization_callback
+        if callback is None:
+            return
+        now = time.monotonic()
+        if not force and (now - self._last_viz_emit) < _VIZ_MIN_INTERVAL:
+            return
+        self._last_viz_emit = now
+
+        payload = {
+            "mode_id": self.id,
+            "frame_left_bgr": frame_left.copy(),
+            "frame_right_bgr": frame_right.copy(),
+            "left_frame_width": int(frame_left.shape[1]),
+            "left_frame_height": int(frame_left.shape[0]),
+            "right_frame_width": int(frame_right.shape[1]),
+            "right_frame_height": int(frame_right.shape[0]),
+            "screen_width": int(screen_w),
+            "screen_height": int(screen_h),
+            "screen_bounds": tuple(int(v) for v in virtual_bounds),
+            "landmarks_left": None,
+            "landmarks_right": None,
+            "points_3d": None,
+            "facial_transformation_matrix": None,
+            "yaw_deg": None,
+            "pitch_deg": None,
+            "screen_position": None,
+            "target_screen_xy": None,
+            "depth": None,
+            "blendshapes": {},
+            "gesture_state": None,
+            "paused": self._paused,
+            "idle": True,
+            "idle_streak_frames": int(idle.streak_frames),
         }
         try:
             callback(payload)
@@ -324,3 +401,4 @@ class TwoCameraHeadPoseMode(TrackingMode):
     def update_settings(self, settings: dict) -> None:
         _apply_cursor_settings(self._cursor, settings)
         _apply_gesture_settings(self._gesture_controller, settings)
+        apply_idle_settings(self._idle, settings)

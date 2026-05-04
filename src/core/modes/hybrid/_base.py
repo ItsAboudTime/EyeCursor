@@ -12,6 +12,7 @@ from src.capture.frame_capture import SINGLE_CAM_ID
 from src.capture.session import assert_capture_alive, capture_session
 from src.core.modes._viz_helpers import derive_last_action
 from src.core.modes.base import TrackingMode
+from src.core.modes.idle import IdleController, apply_idle_settings
 from src.core.modes.one_camera_head_pose import _build_gesture_controller
 from src.face_tracking.controllers.gesture import GestureController
 from src.face_tracking.pipelines.face_analysis import FaceAnalysisPipeline
@@ -41,6 +42,7 @@ class _HybridGazeHeadModeBase(TrackingMode):
         self._paused = False
         self.visualization_callback: Optional[Callable[[dict], None]] = None
         self._last_viz_emit = 0.0
+        self._idle: Optional[IdleController] = None
 
     def validate_requirements(
         self,
@@ -119,6 +121,12 @@ class _HybridGazeHeadModeBase(TrackingMode):
         gesture_controller.click_enabled = settings.get("click_enabled", True)
         gesture_controller.scroll_enabled = settings.get("scroll_enabled", True)
 
+        idle = IdleController(
+            idle_after_frames=settings.get("idle_after_frames", 30),
+            idle_sleep_s=settings.get("idle_sleep_s", 0.15),
+        )
+        self._idle = idle
+
         try:
             with capture_session([selected_cameras[0]]) as supervisor:
                 last_ts = 0.0
@@ -144,7 +152,20 @@ class _HybridGazeHeadModeBase(TrackingMode):
                         screen_width=screen_w,
                         screen_height=screen_h,
                     )
+                    transitioned = idle.observe(result is not None)
                     if result is None:
+                        # Skip the gaze CNN entirely when no head was detected
+                        # (it would just fail to find a face anyway).
+                        if transitioned or idle.is_idle:
+                            self._emit_idle_visualization(
+                                frame_bgr=frame,
+                                idle=idle,
+                                screen_w=screen_w,
+                                screen_h=screen_h,
+                                virtual_bounds=(minx, miny, maxx, maxy),
+                                force=transitioned,
+                            )
+                        idle.maybe_sleep()
                         continue
 
                     head_xy = result.screen_position
@@ -196,10 +217,13 @@ class _HybridGazeHeadModeBase(TrackingMode):
                         screen_w=screen_w,
                         screen_h=screen_h,
                         virtual_bounds=(minx, miny, maxx, maxy),
+                        idle=idle,
+                        force=transitioned,
                     )
         finally:
             gesture_controller.shutdown()
             head_pipeline.release()
+            self._idle = None
 
     @abstractmethod
     def _blend_targets(
@@ -239,12 +263,14 @@ class _HybridGazeHeadModeBase(TrackingMode):
         screen_w: int,
         screen_h: int,
         virtual_bounds: Tuple[int, int, int, int],
+        idle: Optional[IdleController] = None,
+        force: bool = False,
     ) -> None:
         callback = self.visualization_callback
         if callback is None:
             return
         now = time.monotonic()
-        if (now - self._last_viz_emit) < _VIZ_MIN_INTERVAL:
+        if not force and (now - self._last_viz_emit) < _VIZ_MIN_INTERVAL:
             return
         self._last_viz_emit = now
 
@@ -338,6 +364,59 @@ class _HybridGazeHeadModeBase(TrackingMode):
             "dlib_landmarks_68": dlib_landmarks.copy() if dlib_landmarks is not None else None,
             "dlib_face_box": face_box,
             "paused": self._paused,
+            "idle": bool(idle.is_idle) if idle is not None else False,
+            "idle_streak_frames": int(idle.streak_frames) if idle is not None else 0,
+        }
+        try:
+            callback(payload)
+        except Exception:
+            pass
+
+    def _emit_idle_visualization(
+        self,
+        frame_bgr,
+        idle: IdleController,
+        screen_w: int,
+        screen_h: int,
+        virtual_bounds: Tuple[int, int, int, int],
+        force: bool = False,
+    ) -> None:
+        """Minimal payload while no head was detected (and gaze CNN was skipped)."""
+        callback = self.visualization_callback
+        if callback is None:
+            return
+        now = time.monotonic()
+        if not force and (now - self._last_viz_emit) < _VIZ_MIN_INTERVAL:
+            return
+        self._last_viz_emit = now
+
+        payload = {
+            "mode_id": self.id,
+            "frame_bgr": frame_bgr.copy(),
+            "frame_width": int(frame_bgr.shape[1]),
+            "frame_height": int(frame_bgr.shape[0]),
+            "screen_width": int(screen_w),
+            "screen_height": int(screen_h),
+            "screen_bounds": tuple(int(v) for v in virtual_bounds),
+            "landmarks": None,
+            "facial_transformation_matrix": None,
+            "yaw_deg": None,
+            "pitch_deg": None,
+            "screen_position": None,
+            "target_screen_xy": None,
+            "head_screen_xy": None,
+            "gaze_screen_xy": None,
+            "blend_debug": {"active": "idle"},
+            "blendshapes": {},
+            "gesture_state": None,
+            "pitch_rad": None,
+            "yaw_rad": None,
+            "face_patch_bgr": None,
+            "dlib_landmarks_68": None,
+            "dlib_face_box": None,
+            "paused": self._paused,
+            "idle": True,
+            "idle_streak_frames": int(idle.streak_frames),
         }
         try:
             callback(payload)
@@ -352,3 +431,6 @@ class _HybridGazeHeadModeBase(TrackingMode):
 
     def resume(self) -> None:
         self._paused = False
+
+    def update_settings(self, settings: dict) -> None:
+        apply_idle_settings(self._idle, settings)

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.ui.visualizer._idle_overlay import dim_widget_for_idle, overlay_idle_on_label
 from src.ui.visualizer.drawing import (
     bgr_to_qpixmap,
     draw_mediapipe_landmarks,
@@ -180,6 +181,18 @@ class TwoCameraPanel(QWidget):
 
         self._set_pixmap(self._left_raw, left_bgr)
         self._set_pixmap(self._right_raw, right_bgr)
+
+        idle = bool(payload.get("idle", False))
+        overlay_idle_on_label(self._left_raw, idle)
+        overlay_idle_on_label(self._right_raw, idle)
+        # Every other visual widget gets a uniform dim. The IDLE badges on
+        # the raw frames are the single source of "this is idle"; everything
+        # else just fades out so the user sees the whole pipeline is paused.
+        dim_widget_for_idle(self._left_landmarks, idle)
+        dim_widget_for_idle(self._right_landmarks, idle)
+        dim_widget_for_idle(self._displacement, idle)
+        dim_widget_for_idle(self._head_view, idle)
+        dim_widget_for_idle(self._target_label, idle)
 
         if left_bgr is not None and left_lm is not None and left_w and left_h:
             self._set_pixmap(

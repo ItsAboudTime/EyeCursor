@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.ui.overlays.gaze_bubble_overlay import BUBBLE_RADIUS_PX
+from src.ui.visualizer._idle_overlay import dim_widget_for_idle, overlay_idle_on_label
 from src.ui.visualizer.drawing import (
     bgr_to_qpixmap,
     draw_dlib_landmarks,
@@ -113,10 +114,13 @@ class EyeGazePanel(QWidget):
         screen_bounds = payload.get("screen_bounds")
         gesture_state = payload.get("gesture_state") or {}
 
+        idle = bool(payload.get("idle", False))
+
         if frame_bgr is not None:
             self._set_pixmap_bgr(self._raw_label, frame_bgr)
             with_landmarks = draw_dlib_landmarks(frame_bgr, dlib_landmarks, face_box)
             self._set_pixmap_bgr(self._detection_label, with_landmarks)
+            overlay_idle_on_label(self._raw_label, idle)
 
         if face_patch_bgr is not None and pitch_rad is not None and yaw_rad is not None:
             patch_rgb = cv2.cvtColor(face_patch_bgr, cv2.COLOR_BGR2RGB)
@@ -168,6 +172,16 @@ class EyeGazePanel(QWidget):
 
         if self._gesture_box is not None:
             self._update_gesture_panel(payload)
+
+        # Dim all secondary panels uniformly when idle. The raw-frame label
+        # already carries the dim + IDLE badge from overlay_idle_on_label above.
+        dim_widget_for_idle(self._detection_label, idle)
+        dim_widget_for_idle(self._patch_label, idle)
+        dim_widget_for_idle(self._target_label, idle)
+        if self._gesture_box is not None:
+            dim_widget_for_idle(self._gesture_box, idle)
+        if self._bubble_label is not None:
+            dim_widget_for_idle(self._bubble_label, idle)
 
     def _build_gesture_box(self) -> QWidget:
         box = QGroupBox("Gestures")

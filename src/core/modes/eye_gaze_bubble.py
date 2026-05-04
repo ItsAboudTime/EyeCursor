@@ -9,6 +9,7 @@ from src.capture.session import assert_capture_alive, capture_session
 from src.core.devices.camera_identity import warn_if_single_camera_mismatch
 from src.core.modes.base import TrackingMode
 from src.core.modes.eye_gaze import _apply_gaze_controller_settings
+from src.core.modes.idle import IdleController, apply_idle_settings
 from src.core.modes.one_camera_head_pose import _apply_cursor_settings
 
 
@@ -33,6 +34,7 @@ class EyeGazeBubbleMode(TrackingMode):
         self._last_viz_emit = 0.0
         self._cursor = None
         self._gaze_controller = None
+        self._idle: Optional[IdleController] = None
 
     def validate_requirements(
         self,
@@ -95,8 +97,13 @@ class EyeGazeBubbleMode(TrackingMode):
         controller.calibration_yaw = calib.get("calibration_yaw", 0.0)
         controller.calibration_pitch = calib.get("calibration_pitch", 0.0)
 
+        idle = IdleController(
+            idle_after_frames=settings.get("idle_after_frames", 30),
+            idle_sleep_s=settings.get("idle_sleep_s", 0.15),
+        )
         self._cursor = cursor
         self._gaze_controller = controller
+        self._idle = idle
         _apply_cursor_settings(cursor, settings)
         _apply_gaze_controller_settings(controller, settings)
 
@@ -120,23 +127,37 @@ class EyeGazeBubbleMode(TrackingMode):
                     frame, last_ts = got
 
                     result = inference.infer_from_frame(frame)
-                    if result is not None:
-                        pitch_rad, yaw_rad, face_patch_bgr, _ = result
-                        target = controller.target_from_gaze(yaw_rad=yaw_rad, pitch_rad=pitch_rad)
-                        if target is not None and self.gaze_target_callback is not None:
-                            self.gaze_target_callback(target[0], target[1])
-                        self._maybe_emit_visualization(
-                            frame_bgr=frame,
-                            pitch_rad=pitch_rad,
-                            yaw_rad=yaw_rad,
-                            face_patch_bgr=face_patch_bgr,
-                            target=target,
-                            screen_bounds=screen_bounds,
-                            inference=inference,
-                        )
+                    transitioned = idle.observe(result is not None)
+                    if result is None:
+                        if transitioned or idle.is_idle:
+                            self._emit_idle_visualization(
+                                frame_bgr=frame,
+                                idle=idle,
+                                screen_bounds=screen_bounds,
+                                force=transitioned,
+                            )
+                        idle.maybe_sleep()
+                        continue
+
+                    pitch_rad, yaw_rad, face_patch_bgr, _ = result
+                    target = controller.target_from_gaze(yaw_rad=yaw_rad, pitch_rad=pitch_rad)
+                    if target is not None and self.gaze_target_callback is not None:
+                        self.gaze_target_callback(target[0], target[1])
+                    self._maybe_emit_visualization(
+                        frame_bgr=frame,
+                        pitch_rad=pitch_rad,
+                        yaw_rad=yaw_rad,
+                        face_patch_bgr=face_patch_bgr,
+                        target=target,
+                        screen_bounds=screen_bounds,
+                        inference=inference,
+                        idle=idle,
+                        force=transitioned,
+                    )
         finally:
             self._cursor = None
             self._gaze_controller = None
+            self._idle = None
 
     def _maybe_emit_visualization(
         self,
@@ -147,12 +168,14 @@ class EyeGazeBubbleMode(TrackingMode):
         target: Optional[Tuple[int, int]],
         screen_bounds,
         inference,
+        idle: Optional[IdleController] = None,
+        force: bool = False,
     ) -> None:
         callback = self.visualization_callback
         if callback is None:
             return
         now = time.monotonic()
-        if (now - self._last_viz_emit) < _VIZ_MIN_INTERVAL:
+        if not force and (now - self._last_viz_emit) < _VIZ_MIN_INTERVAL:
             return
         self._last_viz_emit = now
 
@@ -174,6 +197,47 @@ class EyeGazeBubbleMode(TrackingMode):
             "bubble_active": True,
             "bubble_target_xy": tuple(target) if target is not None else None,
             "paused": self._paused,
+            "idle": bool(idle.is_idle) if idle is not None else False,
+            "idle_streak_frames": int(idle.streak_frames) if idle is not None else 0,
+        }
+        try:
+            callback(payload)
+        except Exception:
+            pass
+
+    def _emit_idle_visualization(
+        self,
+        frame_bgr,
+        idle: IdleController,
+        screen_bounds,
+        force: bool = False,
+    ) -> None:
+        """Minimal payload while no face is being tracked. See OneCameraHeadPoseMode."""
+        callback = self.visualization_callback
+        if callback is None:
+            return
+        now = time.monotonic()
+        if not force and (now - self._last_viz_emit) < _VIZ_MIN_INTERVAL:
+            return
+        self._last_viz_emit = now
+
+        payload = {
+            "mode_id": self.id,
+            "frame_bgr": frame_bgr.copy(),
+            "frame_width": int(frame_bgr.shape[1]),
+            "frame_height": int(frame_bgr.shape[0]),
+            "pitch_rad": None,
+            "yaw_rad": None,
+            "face_patch_bgr": None,
+            "dlib_landmarks_68": None,
+            "dlib_face_box": None,
+            "target_screen_xy": None,
+            "screen_bounds": tuple(screen_bounds) if screen_bounds is not None else None,
+            "bubble_active": False,
+            "bubble_target_xy": None,
+            "paused": self._paused,
+            "idle": True,
+            "idle_streak_frames": int(idle.streak_frames),
         }
         try:
             callback(payload)
@@ -192,3 +256,4 @@ class EyeGazeBubbleMode(TrackingMode):
     def update_settings(self, settings: dict) -> None:
         _apply_cursor_settings(self._cursor, settings)
         _apply_gaze_controller_settings(self._gaze_controller, settings)
+        apply_idle_settings(self._idle, settings)

@@ -81,7 +81,8 @@ class VisualizerWindow(QMainWindow):
         if hasattr(self._panel, "update_payload"):
             self._panel.update_payload(payload)
         self._frame_count += 1
-        self._fps_label.setText(f"frames: {self._frame_count}")
+        suffix = " · IDLE" if payload.get("idle") else ""
+        self._fps_label.setText(f"frames: {self._frame_count}{suffix}")
 
     def keyPressEvent(self, event) -> None:
         if event.key() in (Qt.Key.Key_Escape,):

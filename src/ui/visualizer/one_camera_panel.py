@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.ui.visualizer._idle_overlay import dim_widget_for_idle, overlay_idle_on_label
 from src.ui.visualizer.drawing import (
     bgr_to_qpixmap,
     draw_head_pose_arrow,
@@ -170,6 +171,7 @@ class OneCameraPanel(QWidget):
         yaw = payload.get("yaw_deg")
         pitch = payload.get("pitch_deg")
         gesture_state = payload.get("gesture_state") or {}
+        idle = bool(payload.get("idle", False))
 
         if frame_bgr is not None:
             self._raw_label.setPixmap(
@@ -179,6 +181,7 @@ class OneCameraPanel(QWidget):
                     Qt.TransformationMode.SmoothTransformation,
                 )
             )
+            overlay_idle_on_label(self._raw_label, idle)
 
             if landmarks is not None and frame_w and frame_h:
                 with_landmarks = draw_mediapipe_landmarks(
@@ -221,6 +224,13 @@ class OneCameraPanel(QWidget):
                 Qt.TransformationMode.SmoothTransformation,
             )
         )
+
+        # Dim every secondary panel when idle; the raw frame already has the
+        # dim + IDLE badge painted into its pixmap above.
+        dim_widget_for_idle(self._landmarks_label, idle)
+        dim_widget_for_idle(self._pose_label, idle)
+        dim_widget_for_idle(self._target_label, idle)
+        dim_widget_for_idle(self._gesture_box, idle)
 
         click_enabled = bool(gesture_state.get("click_enabled", False))
         scroll_enabled = bool(gesture_state.get("scroll_enabled", False))

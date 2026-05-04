@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.ui.overlays.gaze_bubble_overlay import BUBBLE_RADIUS_PX
+from src.ui.visualizer._idle_overlay import dim_widget_for_idle, overlay_idle_on_label
 from src.ui.visualizer.drawing import (
     bgr_to_qpixmap,
     draw_gaze_arrow_on_patch,
@@ -291,6 +292,8 @@ class BubbleLockPanel(QWidget):
             with_arrow = draw_gaze_arrow_on_patch(patch_rgb, pitch_rad, yaw_rad)
             self._set_rgb(self._patch_label, with_arrow)
 
+        idle = bool(payload.get("idle", False))
+
         # 2. Landmarks + head-pose arrow --------------------------------
         if frame_bgr is not None:
             annotated = frame_bgr.copy()
@@ -301,6 +304,7 @@ class BubbleLockPanel(QWidget):
             if forward is not None and nose_xy is not None:
                 annotated = draw_head_pose_arrow(annotated, nose_xy, forward)
             self._set_bgr(self._landmarks_label, annotated)
+            overlay_idle_on_label(self._landmarks_label, idle)
 
         # 3. 3D head model ---------------------------------------------
         self._head_view.update_points(points_3d, depth)
@@ -426,6 +430,12 @@ class BubbleLockPanel(QWidget):
         )
 
         self._record_action(gesture_state)
+
+        # Dim every other visual panel when idle. The landmarks label
+        # already carries the dim + IDLE badge from overlay_idle_on_label above.
+        dim_widget_for_idle(self._patch_label, idle)
+        dim_widget_for_idle(self._head_view, idle)
+        dim_widget_for_idle(self._target_label, idle)
 
     # ------------------------------------------------------------------ #
     # Helpers                                                              #

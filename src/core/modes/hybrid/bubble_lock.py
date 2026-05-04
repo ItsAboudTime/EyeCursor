@@ -15,6 +15,7 @@ from src.core.devices.camera_identity import match_stereo_cameras
 from src.core.modes._viz_helpers import derive_last_action
 from src.core.modes.base import TrackingMode
 from src.core.modes.eye_gaze import _apply_gaze_controller_settings
+from src.core.modes.idle import IdleController, apply_idle_settings
 from src.core.modes.one_camera_head_pose import (
     _apply_cursor_settings,
     _build_gesture_controller,
@@ -74,6 +75,7 @@ class HybridBubbleLockMode(TrackingMode):
         self._gesture_controller: Optional[GestureController] = None
         self._gaze_controller = None
         self._last_bubble_click_side: Optional[str] = None
+        self._idle: Optional[IdleController] = None
 
     def validate_requirements(
         self,
@@ -180,9 +182,14 @@ class HybridBubbleLockMode(TrackingMode):
         tuck_trigger_high = gesture_controller.tuck_trigger_high
         tuck_release = gesture_controller.tuck_release
 
+        idle = IdleController(
+            idle_after_frames=settings.get("idle_after_frames", 30),
+            idle_sleep_s=settings.get("idle_sleep_s", 0.15),
+        )
         self._cursor = cursor
         self._gesture_controller = gesture_controller
         self._gaze_controller = gaze_controller
+        self._idle = idle
         _apply_cursor_settings(cursor, settings)
         _apply_gaze_controller_settings(gaze_controller, settings)
         _apply_bubble_lock_gesture_settings(gesture_controller, settings)
@@ -240,7 +247,22 @@ class HybridBubbleLockMode(TrackingMode):
                         screen_width=screen_w,
                         screen_height=screen_h,
                     )
+                    transitioned = idle.observe(result is not None)
                     if result is None:
+                        if transitioned or idle.is_idle:
+                            self._emit_idle_visualization(
+                                frame_bgr=frame_l,
+                                idle=idle,
+                                screen_w=screen_w,
+                                screen_h=screen_h,
+                                virtual_bounds=(minx, miny, maxx, maxy),
+                                state=state,
+                                frozen_center=frozen_center,
+                                last_bubble_target=last_bubble_target,
+                                bubble_radius_px=BUBBLE_RADIUS_PX,
+                                force=transitioned,
+                            )
+                        idle.maybe_sleep()
                         continue
 
                     # Gaze inference -> screen target (bubble target).
@@ -375,6 +397,8 @@ class HybridBubbleLockMode(TrackingMode):
                         virtual_bounds=(minx, miny, maxx, maxy),
                         entry_armed=entry_armed,
                         exit_armed=exit_armed,
+                        idle=idle,
+                        force=transitioned,
                     )
         finally:
             gesture_controller.shutdown()
@@ -382,6 +406,7 @@ class HybridBubbleLockMode(TrackingMode):
             self._cursor = None
             self._gesture_controller = None
             self._gaze_controller = None
+            self._idle = None
 
     def _maybe_emit_visualization(
         self,
@@ -402,12 +427,14 @@ class HybridBubbleLockMode(TrackingMode):
         virtual_bounds: Tuple[int, int, int, int],
         entry_armed: bool,
         exit_armed: bool,
+        idle: Optional[IdleController] = None,
+        force: bool = False,
     ) -> None:
         callback = self.visualization_callback
         if callback is None:
             return
         now = time.monotonic()
-        if (now - self._last_viz_emit) < _VIZ_MIN_INTERVAL:
+        if not force and (now - self._last_viz_emit) < _VIZ_MIN_INTERVAL:
             return
         self._last_viz_emit = now
 
@@ -475,6 +502,68 @@ class HybridBubbleLockMode(TrackingMode):
             "points_3d": result.points_3d,
             "depth": result.depth,
             "paused": self._paused,
+            "idle": bool(idle.is_idle) if idle is not None else False,
+            "idle_streak_frames": int(idle.streak_frames) if idle is not None else 0,
+        }
+        try:
+            callback(payload)
+        except Exception:
+            pass
+
+    def _emit_idle_visualization(
+        self,
+        frame_bgr,
+        idle: IdleController,
+        screen_w: int,
+        screen_h: int,
+        virtual_bounds: Tuple[int, int, int, int],
+        state: str,
+        frozen_center: Optional[Tuple[int, int]],
+        last_bubble_target: Optional[Tuple[int, int]],
+        bubble_radius_px: int,
+        force: bool = False,
+    ) -> None:
+        """Minimal payload while no head was detected. Bubble state is preserved
+        so the badge transition doesn't blank the bubble overlay."""
+        callback = self.visualization_callback
+        if callback is None:
+            return
+        now = time.monotonic()
+        if not force and (now - self._last_viz_emit) < _VIZ_MIN_INTERVAL:
+            return
+        self._last_viz_emit = now
+
+        payload = {
+            "mode_id": self.id,
+            "frame_bgr": frame_bgr.copy(),
+            "frame_width": int(frame_bgr.shape[1]),
+            "frame_height": int(frame_bgr.shape[0]),
+            "screen_width": int(screen_w),
+            "screen_height": int(screen_h),
+            "screen_bounds": tuple(int(v) for v in virtual_bounds),
+            "landmarks": None,
+            "facial_transformation_matrix": None,
+            "yaw_deg": None,
+            "pitch_deg": None,
+            "screen_position": None,
+            "blendshapes": {},
+            "gesture_state": None,
+            "pitch_rad": None,
+            "yaw_rad": None,
+            "face_patch_bgr": None,
+            "dlib_landmarks_68": None,
+            "dlib_face_box": None,
+            "bubble_active": True,
+            "bubble_target_xy": tuple(last_bubble_target) if last_bubble_target is not None else None,
+            "bubble_lock_state": state,
+            "bubble_lock_frozen_center": tuple(frozen_center) if frozen_center is not None else None,
+            "bubble_lock_radius_px": int(bubble_radius_px),
+            "target_screen_xy": None,
+            "points_3d": None,
+            "depth": None,
+            "paused": self._paused,
+            "idle": True,
+            "idle_streak_frames": int(idle.streak_frames),
         }
         try:
             callback(payload)
@@ -494,3 +583,4 @@ class HybridBubbleLockMode(TrackingMode):
         _apply_cursor_settings(self._cursor, settings)
         _apply_bubble_lock_gesture_settings(self._gesture_controller, settings)
         _apply_gaze_controller_settings(self._gaze_controller, settings)
+        apply_idle_settings(self._idle, settings)

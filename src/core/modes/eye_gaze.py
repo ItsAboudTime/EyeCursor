@@ -10,6 +10,7 @@ from src.capture.session import assert_capture_alive, capture_session
 from src.core.devices.camera_identity import warn_if_single_camera_mismatch
 from src.core.modes._viz_helpers import derive_last_action
 from src.core.modes.base import TrackingMode
+from src.core.modes.idle import IdleController, apply_idle_settings
 from src.core.modes.one_camera_head_pose import (
     _apply_cursor_settings,
     _apply_gesture_settings,
@@ -59,6 +60,7 @@ class EyeGazeMode(TrackingMode):
         self._cursor = None
         self._gaze_controller = None
         self._gesture_controller: Optional[GestureController] = None
+        self._idle: Optional[IdleController] = None
 
     def validate_requirements(
         self,
@@ -129,11 +131,16 @@ class EyeGazeMode(TrackingMode):
         controller.calibration_pitch = calib.get("calibration_pitch", 0.0)
 
         gesture_controller = _build_gesture_controller(cursor, gesture_calib)
+        idle = IdleController(
+            idle_after_frames=settings.get("idle_after_frames", 30),
+            idle_sleep_s=settings.get("idle_sleep_s", 0.15),
+        )
 
         # Capture references and apply initial settings.
         self._cursor = cursor
         self._gaze_controller = controller
         self._gesture_controller = gesture_controller
+        self._idle = idle
         _apply_cursor_settings(cursor, settings)
         _apply_gaze_controller_settings(controller, settings)
         _apply_gesture_settings(gesture_controller, settings)
@@ -159,6 +166,21 @@ class EyeGazeMode(TrackingMode):
                     frame, last_ts = got
 
                     result = inference.infer_from_frame(frame)
+                    transitioned = idle.observe(result is not None)
+                    if result is None:
+                        # Skip MediaPipe + cursor work entirely. Only emit a
+                        # visualization payload when the badge state changes
+                        # or while we're throttled.
+                        if transitioned or idle.is_idle:
+                            self._emit_idle_visualization(
+                                frame_bgr=frame,
+                                idle=idle,
+                                screen_bounds=screen_bounds,
+                                force=transitioned,
+                            )
+                        idle.maybe_sleep()
+                        continue
+
                     blendshapes = None
                     pre_scroll = None
                     if (
@@ -180,31 +202,33 @@ class EyeGazeMode(TrackingMode):
                             )
                             gesture_controller.handle_face_analysis(face_analysis, now=time.time())
 
-                    if result is not None:
-                        pitch_rad, yaw_rad, face_patch_bgr, _ = result
-                        target = controller.target_from_gaze(
-                            yaw_rad=yaw_rad, pitch_rad=pitch_rad
-                        )
-                        if target is not None and controller.cursor is not None:
-                            controller.cursor.step_towards(*target)
-                        self._maybe_emit_visualization(
-                            frame_bgr=frame,
-                            pitch_rad=pitch_rad,
-                            yaw_rad=yaw_rad,
-                            face_patch_bgr=face_patch_bgr,
-                            target=target,
-                            screen_bounds=screen_bounds,
-                            inference=inference,
-                            gesture_controller=gesture_controller,
-                            blendshapes=blendshapes,
-                            pre_scroll=pre_scroll,
-                        )
+                    pitch_rad, yaw_rad, face_patch_bgr, _ = result
+                    target = controller.target_from_gaze(
+                        yaw_rad=yaw_rad, pitch_rad=pitch_rad
+                    )
+                    if target is not None and controller.cursor is not None:
+                        controller.cursor.step_towards(*target)
+                    self._maybe_emit_visualization(
+                        frame_bgr=frame,
+                        pitch_rad=pitch_rad,
+                        yaw_rad=yaw_rad,
+                        face_patch_bgr=face_patch_bgr,
+                        target=target,
+                        screen_bounds=screen_bounds,
+                        inference=inference,
+                        gesture_controller=gesture_controller,
+                        blendshapes=blendshapes,
+                        pre_scroll=pre_scroll,
+                        idle=idle,
+                        force=transitioned,
+                    )
         finally:
             gesture_controller.shutdown()
             landmarks_provider.release()
             self._cursor = None
             self._gaze_controller = None
             self._gesture_controller = None
+            self._idle = None
 
     def _maybe_emit_visualization(
         self,
@@ -218,12 +242,14 @@ class EyeGazeMode(TrackingMode):
         gesture_controller: Optional[GestureController] = None,
         blendshapes: Optional[dict] = None,
         pre_scroll: Optional[str] = None,
+        idle: Optional[IdleController] = None,
+        force: bool = False,
     ) -> None:
         callback = self.visualization_callback
         if callback is None:
             return
         now = time.monotonic()
-        if (now - self._last_viz_emit) < _VIZ_MIN_INTERVAL:
+        if not force and (now - self._last_viz_emit) < _VIZ_MIN_INTERVAL:
             return
         self._last_viz_emit = now
 
@@ -271,6 +297,47 @@ class EyeGazeMode(TrackingMode):
             "blendshapes": blendshapes,
             "gesture_state": gesture_state,
             "paused": self._paused,
+            "idle": bool(idle.is_idle) if idle is not None else False,
+            "idle_streak_frames": int(idle.streak_frames) if idle is not None else 0,
+        }
+        try:
+            callback(payload)
+        except Exception:
+            pass
+
+    def _emit_idle_visualization(
+        self,
+        frame_bgr,
+        idle: IdleController,
+        screen_bounds,
+        force: bool = False,
+    ) -> None:
+        """Minimal payload while no face is being tracked. See OneCameraHeadPoseMode."""
+        callback = self.visualization_callback
+        if callback is None:
+            return
+        now = time.monotonic()
+        if not force and (now - self._last_viz_emit) < _VIZ_MIN_INTERVAL:
+            return
+        self._last_viz_emit = now
+
+        payload = {
+            "mode_id": self.id,
+            "frame_bgr": frame_bgr.copy(),
+            "frame_width": int(frame_bgr.shape[1]),
+            "frame_height": int(frame_bgr.shape[0]),
+            "pitch_rad": None,
+            "yaw_rad": None,
+            "face_patch_bgr": None,
+            "dlib_landmarks_68": None,
+            "dlib_face_box": None,
+            "target_screen_xy": None,
+            "screen_bounds": tuple(screen_bounds) if screen_bounds is not None else None,
+            "blendshapes": None,
+            "gesture_state": None,
+            "paused": self._paused,
+            "idle": True,
+            "idle_streak_frames": int(idle.streak_frames),
         }
         try:
             callback(payload)
@@ -290,3 +357,4 @@ class EyeGazeMode(TrackingMode):
         _apply_cursor_settings(self._cursor, settings)
         _apply_gaze_controller_settings(self._gaze_controller, settings)
         _apply_gesture_settings(self._gesture_controller, settings)
+        apply_idle_settings(self._idle, settings)
