@@ -2,9 +2,10 @@ import pathlib
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
-import cv2
 import numpy as np
 
+from src.capture.frame_capture import SINGLE_CAM_ID
+from src.capture.session import assert_capture_alive, capture_session
 from src.core.devices.camera_identity import warn_if_single_camera_mismatch
 from src.core.modes.base import TrackingMode
 from src.core.modes.eye_gaze import _apply_gaze_controller_settings
@@ -99,42 +100,41 @@ class EyeGazeBubbleMode(TrackingMode):
         _apply_cursor_settings(cursor, settings)
         _apply_gaze_controller_settings(controller, settings)
 
-        camera = cv2.VideoCapture(selected_cameras[0])
-        if not camera.isOpened():
-            raise RuntimeError(
-                f"Could not open Camera {selected_cameras[0]}. "
-                "Try selecting another camera or closing other apps that may be using it."
-            )
-
         screen_bounds = controller.cursor_bounds
 
         try:
-            while not self._should_stop:
-                if self._paused:
-                    time.sleep(0.05)
-                    continue
+            with capture_session([selected_cameras[0]]) as supervisor:
+                last_ts = 0.0
+                while not self._should_stop:
+                    if self._paused:
+                        time.sleep(0.05)
+                        continue
 
-                ok, frame = camera.read()
-                if not ok:
-                    continue
+                    assert_capture_alive(supervisor)
 
-                result = inference.infer_from_frame(frame)
-                if result is not None:
-                    pitch_rad, yaw_rad, face_patch_bgr, _ = result
-                    target = controller.target_from_gaze(yaw_rad=yaw_rad, pitch_rad=pitch_rad)
-                    if target is not None and self.gaze_target_callback is not None:
-                        self.gaze_target_callback(target[0], target[1])
-                    self._maybe_emit_visualization(
-                        frame_bgr=frame,
-                        pitch_rad=pitch_rad,
-                        yaw_rad=yaw_rad,
-                        face_patch_bgr=face_patch_bgr,
-                        target=target,
-                        screen_bounds=screen_bounds,
-                        inference=inference,
+                    got = supervisor.receiver.get_latest_bgr(
+                        cam_id=SINGLE_CAM_ID, since=last_ts, timeout=0.5
                     )
+                    if got is None:
+                        continue
+                    frame, last_ts = got
+
+                    result = inference.infer_from_frame(frame)
+                    if result is not None:
+                        pitch_rad, yaw_rad, face_patch_bgr, _ = result
+                        target = controller.target_from_gaze(yaw_rad=yaw_rad, pitch_rad=pitch_rad)
+                        if target is not None and self.gaze_target_callback is not None:
+                            self.gaze_target_callback(target[0], target[1])
+                        self._maybe_emit_visualization(
+                            frame_bgr=frame,
+                            pitch_rad=pitch_rad,
+                            yaw_rad=yaw_rad,
+                            face_patch_bgr=face_patch_bgr,
+                            target=target,
+                            screen_bounds=screen_bounds,
+                            inference=inference,
+                        )
         finally:
-            camera.release()
             self._cursor = None
             self._gaze_controller = None
 

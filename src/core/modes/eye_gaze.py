@@ -5,6 +5,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+from src.capture.frame_capture import SINGLE_CAM_ID
+from src.capture.session import assert_capture_alive, capture_session
 from src.core.devices.camera_identity import warn_if_single_camera_mismatch
 from src.core.modes._viz_helpers import derive_last_action
 from src.core.modes.base import TrackingMode
@@ -136,71 +138,70 @@ class EyeGazeMode(TrackingMode):
         _apply_gaze_controller_settings(controller, settings)
         _apply_gesture_settings(gesture_controller, settings)
 
-        camera = cv2.VideoCapture(selected_cameras[0])
-        if not camera.isOpened():
-            raise RuntimeError(
-                f"Could not open Camera {selected_cameras[0]}. "
-                "Try selecting another camera or closing other apps that may be using it."
-            )
-
         landmarks_provider = FaceLandmarksProvider()
         screen_bounds = controller.cursor_bounds
 
         try:
-            while not self._should_stop:
-                if self._paused:
-                    time.sleep(0.05)
-                    continue
+            with capture_session([selected_cameras[0]]) as supervisor:
+                last_ts = 0.0
+                while not self._should_stop:
+                    if self._paused:
+                        time.sleep(0.05)
+                        continue
 
-                ok, frame = camera.read()
-                if not ok:
-                    continue
+                    assert_capture_alive(supervisor)
 
-                result = inference.infer_from_frame(frame)
-                blendshapes = None
-                pre_scroll = None
-                if (
-                    gesture_controller.click_enabled
-                    or gesture_controller.scroll_enabled
-                    or gesture_controller._held_button is not None
-                ):
-                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    observation = landmarks_provider.get_primary_face_observation(rgb)
-                    if observation is not None:
-                        blendshapes = extract_blendshapes(observation.blendshapes)
-                        pre_scroll = gesture_controller.active_scroll_gesture
-                        face_analysis = FaceAnalysisResult(
-                            landmarks=observation.landmarks,
-                            facial_transformation_matrix=observation.facial_transformation_matrix,
-                            screen_position=None,
-                            angles=None,
-                            blendshapes=blendshapes,
+                    got = supervisor.receiver.get_latest_bgr(
+                        cam_id=SINGLE_CAM_ID, since=last_ts, timeout=0.5
+                    )
+                    if got is None:
+                        continue
+                    frame, last_ts = got
+
+                    result = inference.infer_from_frame(frame)
+                    blendshapes = None
+                    pre_scroll = None
+                    if (
+                        gesture_controller.click_enabled
+                        or gesture_controller.scroll_enabled
+                        or gesture_controller._held_button is not None
+                    ):
+                        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        observation = landmarks_provider.get_primary_face_observation(rgb)
+                        if observation is not None:
+                            blendshapes = extract_blendshapes(observation.blendshapes)
+                            pre_scroll = gesture_controller.active_scroll_gesture
+                            face_analysis = FaceAnalysisResult(
+                                landmarks=observation.landmarks,
+                                facial_transformation_matrix=observation.facial_transformation_matrix,
+                                screen_position=None,
+                                angles=None,
+                                blendshapes=blendshapes,
+                            )
+                            gesture_controller.handle_face_analysis(face_analysis, now=time.time())
+
+                    if result is not None:
+                        pitch_rad, yaw_rad, face_patch_bgr, _ = result
+                        target = controller.target_from_gaze(
+                            yaw_rad=yaw_rad, pitch_rad=pitch_rad
                         )
-                        gesture_controller.handle_face_analysis(face_analysis, now=time.time())
-
-                if result is not None:
-                    pitch_rad, yaw_rad, face_patch_bgr, _ = result
-                    target = controller.target_from_gaze(
-                        yaw_rad=yaw_rad, pitch_rad=pitch_rad
-                    )
-                    if target is not None and controller.cursor is not None:
-                        controller.cursor.step_towards(*target)
-                    self._maybe_emit_visualization(
-                        frame_bgr=frame,
-                        pitch_rad=pitch_rad,
-                        yaw_rad=yaw_rad,
-                        face_patch_bgr=face_patch_bgr,
-                        target=target,
-                        screen_bounds=screen_bounds,
-                        inference=inference,
-                        gesture_controller=gesture_controller,
-                        blendshapes=blendshapes,
-                        pre_scroll=pre_scroll,
-                    )
+                        if target is not None and controller.cursor is not None:
+                            controller.cursor.step_towards(*target)
+                        self._maybe_emit_visualization(
+                            frame_bgr=frame,
+                            pitch_rad=pitch_rad,
+                            yaw_rad=yaw_rad,
+                            face_patch_bgr=face_patch_bgr,
+                            target=target,
+                            screen_bounds=screen_bounds,
+                            inference=inference,
+                            gesture_controller=gesture_controller,
+                            blendshapes=blendshapes,
+                            pre_scroll=pre_scroll,
+                        )
         finally:
             gesture_controller.shutdown()
             landmarks_provider.release()
-            camera.release()
             self._cursor = None
             self._gaze_controller = None
             self._gesture_controller = None

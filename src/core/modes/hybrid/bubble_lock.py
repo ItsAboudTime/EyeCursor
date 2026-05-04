@@ -9,6 +9,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+from src.capture.frame_capture import STEREO_LEFT_CAM_ID, STEREO_RIGHT_CAM_ID
+from src.capture.session import assert_capture_alive, capture_session
 from src.core.devices.camera_identity import match_stereo_cameras
 from src.core.modes._viz_helpers import derive_last_action
 from src.core.modes.base import TrackingMode
@@ -136,16 +138,6 @@ class HybridBubbleLockMode(TrackingMode):
             t=np.array(stereo_data["T"], dtype=np.float64).reshape(3, 1),
         )
 
-        left_cam = cv2.VideoCapture(selected_cameras[0])
-        right_cam = cv2.VideoCapture(selected_cameras[1])
-        if not left_cam.isOpened() or not right_cam.isOpened():
-            left_cam.release()
-            right_cam.release()
-            raise RuntimeError(
-                "Could not open one or both cameras. "
-                "Try closing other apps that may be using them."
-            )
-
         head_pipeline = StereoFaceAnalysisPipeline(
             stereo_calibration=stereo_calib,
             yaw_span=calib_head["yaw_span"],
@@ -212,168 +204,180 @@ class HybridBubbleLockMode(TrackingMode):
         exit_hold_start: Optional[float] = None
 
         try:
-            while not self._should_stop:
-                if self._paused:
-                    time.sleep(0.05)
-                    continue
+            with capture_session(
+                [selected_cameras[0], selected_cameras[1]]
+            ) as supervisor:
+                since_left = 0.0
+                since_right = 0.0
+                while not self._should_stop:
+                    if self._paused:
+                        time.sleep(0.05)
+                        continue
 
-                ok_l, frame_l = left_cam.read()
-                ok_r, frame_r = right_cam.read()
-                if not ok_l or not ok_r:
-                    continue
+                    assert_capture_alive(supervisor)
 
-                rgb_l = cv2.cvtColor(frame_l, cv2.COLOR_BGR2RGB)
-                rgb_r = cv2.cvtColor(frame_r, cv2.COLOR_BGR2RGB)
-                result = head_pipeline.analyze(
-                    left_rgb_frame=rgb_l,
-                    right_rgb_frame=rgb_r,
-                    left_frame_width=frame_l.shape[1],
-                    left_frame_height=frame_l.shape[0],
-                    right_frame_width=frame_r.shape[1],
-                    right_frame_height=frame_r.shape[0],
-                    screen_width=screen_w,
-                    screen_height=screen_h,
-                )
-                if result is None:
-                    continue
-
-                # Gaze inference -> screen target (bubble target).
-                # Skipped when frozen: the bubble is stationary and the CNN is
-                # the most expensive operation in the loop.
-                gaze_target: Optional[Tuple[int, int]] = None
-                gaze_pitch_rad: Optional[float] = None
-                gaze_yaw_rad: Optional[float] = None
-                face_patch_bgr = None
-                if state == _STATE_GAZE_FOLLOW:
-                    gz = inference.infer_from_frame(frame_l)
-                    if gz is not None:
-                        gaze_pitch_rad, gaze_yaw_rad, face_patch_bgr, _ = gz
-                        t = gaze_controller.target_from_gaze(
-                            yaw_rad=gaze_yaw_rad, pitch_rad=gaze_pitch_rad
-                        )
-                        if t is not None:
-                            gaze_target = t
-
-                now = time.time()
-                blendshapes = result.blendshapes or {}
-                pucker_now = max(0.0, pucker_value(blendshapes) - pucker_baseline)
-                tuck_now = max(0.0, tuck_value(blendshapes) - tuck_baseline)
-
-                if state == _STATE_GAZE_FOLLOW:
-                    # Bubble follows gaze.
-                    if gaze_target is not None and self.gaze_target_callback is not None:
-                        self.gaze_target_callback(gaze_target[0], gaze_target[1])
-                        last_bubble_target = gaze_target
-
-                    # Entry re-arm: only depends on pucker so a high resting
-                    # tuck value doesn't prevent the user from ever freezing.
-                    if pucker_now < pucker_release:
-                        entry_armed = True
-
-                    # Entry: pucker held for _GESTURE_HOLD_SEC while armed.
-                    if entry_armed and pucker_now >= pucker_trigger_high:
-                        if entry_hold_start is None:
-                            entry_hold_start = now
-                        if now - entry_hold_start >= _GESTURE_HOLD_SEC:
-                            entry_hold_start = None
-                            entry_armed = False
-                            exit_armed = False   # require pucker release before exit arms
-                            if last_bubble_target is not None:
-                                cx, cy = cursor.clamp_target(
-                                    int(last_bubble_target[0]), int(last_bubble_target[1])
-                                )
-                            else:
-                                cx, cy = cursor.get_pos()
-                            cursor.set_pos(cx, cy)
-                            cursor._last_step_time = None
-                            frozen_center = (cx, cy)
-                            state = _STATE_FROZEN
-                    else:
-                        entry_hold_start = None   # gesture dropped, reset timer
-
-                else:  # _STATE_FROZEN
-                    # Convert full-screen head-pose target to bubble-local coords
-                    # by re-normalizing, then offset from the frozen center.
-                    if (
-                        result.screen_position is not None
-                        and frozen_center is not None
-                        and screen_w > 1
-                        and screen_h > 1
-                    ):
-                        norm_x = result.screen_position[0] / float(screen_w - 1)
-                        norm_y = result.screen_position[1] / float(screen_h - 1)
-                        norm_x = min(1.0, max(0.0, norm_x))
-                        norm_y = min(1.0, max(0.0, norm_y))
-                        bubble_dx = (norm_x - 0.5) * 2.0 * BUBBLE_RADIUS_PX
-                        bubble_dy = (norm_y - 0.5) * 2.0 * BUBBLE_RADIUS_PX
-                        target_x = int(round(frozen_center[0] + bubble_dx))
-                        target_y = int(round(frozen_center[1] + bubble_dy))
-                        target_x, target_y = cursor.clamp_target(target_x, target_y)
-                        cursor.step_towards(target_x, target_y)
-
-                    # Exit re-arm: pucker relaxing re-arms exit (pucker-only check
-                    # avoids being blocked by a high resting tuck value).
-                    if pucker_now < pucker_release:
-                        exit_armed = True
-
-                    # Exit: pucker (left click) or tuck (right click) held for
-                    # _GESTURE_HOLD_SEC while armed. Hold debounce prevents brief
-                    # blendshape spikes from head movement triggering a false exit.
-                    exit_gesture = (
-                        pucker_now >= pucker_trigger_high or tuck_now >= tuck_trigger_high
+                    pair = supervisor.receiver.get_latest_pair(
+                        cam_id_left=STEREO_LEFT_CAM_ID,
+                        cam_id_right=STEREO_RIGHT_CAM_ID,
+                        timeout=0.5,
+                        max_skew=0.05,
+                        since_left=since_left,
+                        since_right=since_right,
                     )
-                    if exit_armed and exit_gesture:
-                        if exit_hold_start is None:
-                            exit_hold_start = now
-                        if now - exit_hold_start >= _GESTURE_HOLD_SEC:
-                            exit_hold_start = None
-                            exit_armed = False
-                            if pucker_now >= pucker_trigger_high:
-                                cursor.left_click()
-                                self._last_bubble_click_side = "left"
-                            else:
-                                cursor.right_click()
-                                self._last_bubble_click_side = "right"
-                            state = _STATE_GAZE_FOLLOW
-                            frozen_center = None
-                            cursor._last_step_time = None
-                    else:
-                        exit_hold_start = None   # gesture dropped or not armed, reset timer
+                    if pair is None:
+                        continue
+                    frame_l, frame_r, since_left, since_right = pair
 
-                pre_scroll = gesture_controller.active_scroll_gesture
-                # This mode owns cursor placement in both states (none in
-                # GAZE_FOLLOW; bubble-relative in FROZEN), so strip the
-                # full-screen head-pose target before passing to the gesture
-                # controller -- otherwise its built-in cursor follow would
-                # clobber us. Restored after so the viz payload is unchanged.
-                saved_pos = result.screen_position
-                result.screen_position = None
-                gesture_controller.handle_face_analysis(result, now=time.time())
-                result.screen_position = saved_pos
+                    rgb_l = cv2.cvtColor(frame_l, cv2.COLOR_BGR2RGB)
+                    rgb_r = cv2.cvtColor(frame_r, cv2.COLOR_BGR2RGB)
+                    result = head_pipeline.analyze(
+                        left_rgb_frame=rgb_l,
+                        right_rgb_frame=rgb_r,
+                        left_frame_width=frame_l.shape[1],
+                        left_frame_height=frame_l.shape[0],
+                        right_frame_width=frame_r.shape[1],
+                        right_frame_height=frame_r.shape[0],
+                        screen_width=screen_w,
+                        screen_height=screen_h,
+                    )
+                    if result is None:
+                        continue
 
-                self._maybe_emit_visualization(
-                    frame_bgr=frame_l,
-                    result=result,
-                    state=state,
-                    frozen_center=frozen_center,
-                    last_bubble_target=last_bubble_target,
-                    gaze_target=gaze_target,
-                    gaze_pitch_rad=gaze_pitch_rad,
-                    gaze_yaw_rad=gaze_yaw_rad,
-                    face_patch_bgr=face_patch_bgr,
-                    inference=inference,
-                    gesture_controller=gesture_controller,
-                    pre_scroll=pre_scroll,
-                    screen_w=screen_w,
-                    screen_h=screen_h,
-                    virtual_bounds=(minx, miny, maxx, maxy),
-                    entry_armed=entry_armed,
-                    exit_armed=exit_armed,
-                )
+                    # Gaze inference -> screen target (bubble target).
+                    # Skipped when frozen: the bubble is stationary and the CNN is
+                    # the most expensive operation in the loop.
+                    gaze_target: Optional[Tuple[int, int]] = None
+                    gaze_pitch_rad: Optional[float] = None
+                    gaze_yaw_rad: Optional[float] = None
+                    face_patch_bgr = None
+                    if state == _STATE_GAZE_FOLLOW:
+                        gz = inference.infer_from_frame(frame_l)
+                        if gz is not None:
+                            gaze_pitch_rad, gaze_yaw_rad, face_patch_bgr, _ = gz
+                            t = gaze_controller.target_from_gaze(
+                                yaw_rad=gaze_yaw_rad, pitch_rad=gaze_pitch_rad
+                            )
+                            if t is not None:
+                                gaze_target = t
+
+                    now = time.time()
+                    blendshapes = result.blendshapes or {}
+                    pucker_now = max(0.0, pucker_value(blendshapes) - pucker_baseline)
+                    tuck_now = max(0.0, tuck_value(blendshapes) - tuck_baseline)
+
+                    if state == _STATE_GAZE_FOLLOW:
+                        # Bubble follows gaze.
+                        if gaze_target is not None and self.gaze_target_callback is not None:
+                            self.gaze_target_callback(gaze_target[0], gaze_target[1])
+                            last_bubble_target = gaze_target
+
+                        # Entry re-arm: only depends on pucker so a high resting
+                        # tuck value doesn't prevent the user from ever freezing.
+                        if pucker_now < pucker_release:
+                            entry_armed = True
+
+                        # Entry: pucker held for _GESTURE_HOLD_SEC while armed.
+                        if entry_armed and pucker_now >= pucker_trigger_high:
+                            if entry_hold_start is None:
+                                entry_hold_start = now
+                            if now - entry_hold_start >= _GESTURE_HOLD_SEC:
+                                entry_hold_start = None
+                                entry_armed = False
+                                exit_armed = False   # require pucker release before exit arms
+                                if last_bubble_target is not None:
+                                    cx, cy = cursor.clamp_target(
+                                        int(last_bubble_target[0]), int(last_bubble_target[1])
+                                    )
+                                else:
+                                    cx, cy = cursor.get_pos()
+                                cursor.set_pos(cx, cy)
+                                cursor._last_step_time = None
+                                frozen_center = (cx, cy)
+                                state = _STATE_FROZEN
+                        else:
+                            entry_hold_start = None   # gesture dropped, reset timer
+
+                    else:  # _STATE_FROZEN
+                        # Convert full-screen head-pose target to bubble-local coords
+                        # by re-normalizing, then offset from the frozen center.
+                        if (
+                            result.screen_position is not None
+                            and frozen_center is not None
+                            and screen_w > 1
+                            and screen_h > 1
+                        ):
+                            norm_x = result.screen_position[0] / float(screen_w - 1)
+                            norm_y = result.screen_position[1] / float(screen_h - 1)
+                            norm_x = min(1.0, max(0.0, norm_x))
+                            norm_y = min(1.0, max(0.0, norm_y))
+                            bubble_dx = (norm_x - 0.5) * 2.0 * BUBBLE_RADIUS_PX
+                            bubble_dy = (norm_y - 0.5) * 2.0 * BUBBLE_RADIUS_PX
+                            target_x = int(round(frozen_center[0] + bubble_dx))
+                            target_y = int(round(frozen_center[1] + bubble_dy))
+                            target_x, target_y = cursor.clamp_target(target_x, target_y)
+                            cursor.step_towards(target_x, target_y)
+
+                        # Exit re-arm: pucker relaxing re-arms exit (pucker-only check
+                        # avoids being blocked by a high resting tuck value).
+                        if pucker_now < pucker_release:
+                            exit_armed = True
+
+                        # Exit: pucker (left click) or tuck (right click) held for
+                        # _GESTURE_HOLD_SEC while armed. Hold debounce prevents brief
+                        # blendshape spikes from head movement triggering a false exit.
+                        exit_gesture = (
+                            pucker_now >= pucker_trigger_high or tuck_now >= tuck_trigger_high
+                        )
+                        if exit_armed and exit_gesture:
+                            if exit_hold_start is None:
+                                exit_hold_start = now
+                            if now - exit_hold_start >= _GESTURE_HOLD_SEC:
+                                exit_hold_start = None
+                                exit_armed = False
+                                if pucker_now >= pucker_trigger_high:
+                                    cursor.left_click()
+                                    self._last_bubble_click_side = "left"
+                                else:
+                                    cursor.right_click()
+                                    self._last_bubble_click_side = "right"
+                                state = _STATE_GAZE_FOLLOW
+                                frozen_center = None
+                                cursor._last_step_time = None
+                        else:
+                            exit_hold_start = None   # gesture dropped or not armed, reset timer
+
+                    pre_scroll = gesture_controller.active_scroll_gesture
+                    # This mode owns cursor placement in both states (none in
+                    # GAZE_FOLLOW; bubble-relative in FROZEN), so strip the
+                    # full-screen head-pose target before passing to the gesture
+                    # controller -- otherwise its built-in cursor follow would
+                    # clobber us. Restored after so the viz payload is unchanged.
+                    saved_pos = result.screen_position
+                    result.screen_position = None
+                    gesture_controller.handle_face_analysis(result, now=time.time())
+                    result.screen_position = saved_pos
+
+                    self._maybe_emit_visualization(
+                        frame_bgr=frame_l,
+                        result=result,
+                        state=state,
+                        frozen_center=frozen_center,
+                        last_bubble_target=last_bubble_target,
+                        gaze_target=gaze_target,
+                        gaze_pitch_rad=gaze_pitch_rad,
+                        gaze_yaw_rad=gaze_yaw_rad,
+                        face_patch_bgr=face_patch_bgr,
+                        inference=inference,
+                        gesture_controller=gesture_controller,
+                        pre_scroll=pre_scroll,
+                        screen_w=screen_w,
+                        screen_h=screen_h,
+                        virtual_bounds=(minx, miny, maxx, maxy),
+                        entry_armed=entry_armed,
+                        exit_armed=exit_armed,
+                    )
         finally:
             gesture_controller.shutdown()
-            left_cam.release()
-            right_cam.release()
             head_pipeline.release()
             self._cursor = None
             self._gesture_controller = None

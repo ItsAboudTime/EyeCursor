@@ -6,6 +6,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+from src.capture.frame_capture import STEREO_LEFT_CAM_ID, STEREO_RIGHT_CAM_ID
+from src.capture.session import assert_capture_alive, capture_session
 from src.core.devices.camera_identity import match_stereo_cameras
 from src.core.modes._viz_helpers import derive_last_action
 from src.core.modes.base import TrackingMode
@@ -142,16 +144,6 @@ class TwoCameraHeadPoseMode(TrackingMode):
             t=np.array(stereo_data["T"], dtype=np.float64).reshape(3, 1),
         )
 
-        left_cam = cv2.VideoCapture(selected_cameras[0])
-        right_cam = cv2.VideoCapture(selected_cameras[1])
-        if not left_cam.isOpened() or not right_cam.isOpened():
-            left_cam.release()
-            right_cam.release()
-            raise RuntimeError(
-                "Could not open one or both cameras. "
-                "Try closing other apps that may be using them."
-            )
-
         pipeline = StereoFaceAnalysisPipeline(
             stereo_calibration=stereo_calib,
             yaw_span=head_calib["yaw_span"],
@@ -174,48 +166,60 @@ class TwoCameraHeadPoseMode(TrackingMode):
         broadcaster.start()
 
         try:
-            while not self._should_stop:
-                if self._paused:
-                    time.sleep(0.05)
-                    continue
+            with capture_session(
+                [selected_cameras[0], selected_cameras[1]]
+            ) as supervisor:
+                since_left = 0.0
+                since_right = 0.0
+                while not self._should_stop:
+                    if self._paused:
+                        time.sleep(0.05)
+                        continue
 
-                ok_l, frame_l = left_cam.read()
-                ok_r, frame_r = right_cam.read()
-                if not ok_l or not ok_r:
-                    continue
+                    assert_capture_alive(supervisor)
 
-                rgb_l = cv2.cvtColor(frame_l, cv2.COLOR_BGR2RGB)
-                rgb_r = cv2.cvtColor(frame_r, cv2.COLOR_BGR2RGB)
-
-                result = pipeline.analyze(
-                    left_rgb_frame=rgb_l,
-                    right_rgb_frame=rgb_r,
-                    left_frame_width=frame_l.shape[1],
-                    left_frame_height=frame_l.shape[0],
-                    right_frame_width=frame_r.shape[1],
-                    right_frame_height=frame_r.shape[0],
-                    screen_width=screen_w,
-                    screen_height=screen_h,
-                )
-                if result is not None:
-                    pre_scroll = gesture_controller.active_scroll_gesture
-                    gesture_controller.handle_face_analysis(result, now=time.time())
-                    broadcaster.send(result.depth)
-                    self._maybe_emit_visualization(
-                        frame_left=frame_l,
-                        frame_right=frame_r,
-                        result=result,
-                        gesture_controller=gesture_controller,
-                        pre_scroll=pre_scroll,
-                        screen_w=screen_w,
-                        screen_h=screen_h,
-                        virtual_bounds=(minx, miny, maxx, maxy),
+                    pair = supervisor.receiver.get_latest_pair(
+                        cam_id_left=STEREO_LEFT_CAM_ID,
+                        cam_id_right=STEREO_RIGHT_CAM_ID,
+                        timeout=0.5,
+                        max_skew=0.05,
+                        since_left=since_left,
+                        since_right=since_right,
                     )
+                    if pair is None:
+                        continue
+                    frame_l, frame_r, since_left, since_right = pair
+
+                    rgb_l = cv2.cvtColor(frame_l, cv2.COLOR_BGR2RGB)
+                    rgb_r = cv2.cvtColor(frame_r, cv2.COLOR_BGR2RGB)
+
+                    result = pipeline.analyze(
+                        left_rgb_frame=rgb_l,
+                        right_rgb_frame=rgb_r,
+                        left_frame_width=frame_l.shape[1],
+                        left_frame_height=frame_l.shape[0],
+                        right_frame_width=frame_r.shape[1],
+                        right_frame_height=frame_r.shape[0],
+                        screen_width=screen_w,
+                        screen_height=screen_h,
+                    )
+                    if result is not None:
+                        pre_scroll = gesture_controller.active_scroll_gesture
+                        gesture_controller.handle_face_analysis(result, now=time.time())
+                        broadcaster.send(result.depth)
+                        self._maybe_emit_visualization(
+                            frame_left=frame_l,
+                            frame_right=frame_r,
+                            result=result,
+                            gesture_controller=gesture_controller,
+                            pre_scroll=pre_scroll,
+                            screen_w=screen_w,
+                            screen_h=screen_h,
+                            virtual_bounds=(minx, miny, maxx, maxy),
+                        )
         finally:
             broadcaster.stop()
             gesture_controller.shutdown()
-            left_cam.release()
-            right_cam.release()
             pipeline.release()
             self._cursor = None
             self._gesture_controller = None

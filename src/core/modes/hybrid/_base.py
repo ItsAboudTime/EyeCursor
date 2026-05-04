@@ -8,6 +8,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+from src.capture.frame_capture import SINGLE_CAM_ID
+from src.capture.session import assert_capture_alive, capture_session
 from src.core.modes._viz_helpers import derive_last_action
 from src.core.modes.base import TrackingMode
 from src.core.modes.one_camera_head_pose import _build_gesture_controller
@@ -82,13 +84,6 @@ class _HybridGazeHeadModeBase(TrackingMode):
         calib_gaze = profile_calibrations["eye_gaze"]
         gesture_calib = profile_calibrations.get("facial_gestures")
 
-        camera = cv2.VideoCapture(selected_cameras[0])
-        if not camera.isOpened():
-            raise RuntimeError(
-                f"Could not open Camera {selected_cameras[0]}. "
-                "Try selecting another camera or closing other apps that may be using it."
-            )
-
         head_pipeline = FaceAnalysisPipeline(
             yaw_span=calib_head["yaw_span"],
             pitch_span=calib_head["pitch_span"],
@@ -125,79 +120,85 @@ class _HybridGazeHeadModeBase(TrackingMode):
         gesture_controller.scroll_enabled = settings.get("scroll_enabled", True)
 
         try:
-            while not self._should_stop:
-                if self._paused:
-                    time.sleep(0.05)
-                    continue
+            with capture_session([selected_cameras[0]]) as supervisor:
+                last_ts = 0.0
+                while not self._should_stop:
+                    if self._paused:
+                        time.sleep(0.05)
+                        continue
 
-                ok, frame = camera.read()
-                if not ok:
-                    continue
+                    assert_capture_alive(supervisor)
 
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                result = head_pipeline.analyze(
-                    rgb_frame=rgb,
-                    frame_width=frame.shape[1],
-                    frame_height=frame.shape[0],
-                    screen_width=screen_w,
-                    screen_height=screen_h,
-                )
-                if result is None:
-                    continue
-
-                head_xy = result.screen_position
-                yaw_deg, pitch_deg = result.angles or (0.0, 0.0)
-
-                gaze_xy = None
-                gaze_pitch_rad = None
-                gaze_yaw_rad = None
-                face_patch_bgr = None
-                gz = inference.infer_from_frame(frame)
-                if gz is not None:
-                    gaze_pitch_rad, gaze_yaw_rad, face_patch_bgr, _ = gz
-                    t = gaze_controller.target_from_gaze(
-                        yaw_rad=gaze_yaw_rad, pitch_rad=gaze_pitch_rad
+                    got = supervisor.receiver.get_latest_bgr(
+                        cam_id=SINGLE_CAM_ID, since=last_ts, timeout=0.5
                     )
-                    if t is not None:
-                        gaze_xy = (t[0] - minx, t[1] - miny)
+                    if got is None:
+                        continue
+                    frame, last_ts = got
 
-                blended_xy = head_xy
-                debug_meta: dict = {"active": "head_only"}
-                if head_xy is not None:
-                    blended_xy, debug_meta = self._blend_targets(
+                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    result = head_pipeline.analyze(
+                        rgb_frame=rgb,
+                        frame_width=frame.shape[1],
+                        frame_height=frame.shape[0],
+                        screen_width=screen_w,
+                        screen_height=screen_h,
+                    )
+                    if result is None:
+                        continue
+
+                    head_xy = result.screen_position
+                    yaw_deg, pitch_deg = result.angles or (0.0, 0.0)
+
+                    gaze_xy = None
+                    gaze_pitch_rad = None
+                    gaze_yaw_rad = None
+                    face_patch_bgr = None
+                    gz = inference.infer_from_frame(frame)
+                    if gz is not None:
+                        gaze_pitch_rad, gaze_yaw_rad, face_patch_bgr, _ = gz
+                        t = gaze_controller.target_from_gaze(
+                            yaw_rad=gaze_yaw_rad, pitch_rad=gaze_pitch_rad
+                        )
+                        if t is not None:
+                            gaze_xy = (t[0] - minx, t[1] - miny)
+
+                    blended_xy = head_xy
+                    debug_meta: dict = {"active": "head_only"}
+                    if head_xy is not None:
+                        blended_xy, debug_meta = self._blend_targets(
+                            head_xy=head_xy,
+                            gaze_xy=gaze_xy,
+                            yaw_deg=yaw_deg,
+                            pitch_deg=pitch_deg,
+                            screen_w=screen_w,
+                            screen_h=screen_h,
+                        )
+
+                    pre_scroll = gesture_controller.active_scroll_gesture
+                    if blended_xy is not None:
+                        result.screen_position = (int(blended_xy[0]), int(blended_xy[1]))
+                    gesture_controller.handle_face_analysis(result, now=time.time())
+
+                    self._maybe_emit_visualization(
+                        frame_bgr=frame,
+                        result=result,
                         head_xy=head_xy,
                         gaze_xy=gaze_xy,
-                        yaw_deg=yaw_deg,
-                        pitch_deg=pitch_deg,
+                        blended_xy=blended_xy,
+                        debug_meta=debug_meta,
+                        gaze_pitch_rad=gaze_pitch_rad,
+                        gaze_yaw_rad=gaze_yaw_rad,
+                        face_patch_bgr=face_patch_bgr,
+                        inference=inference,
+                        gesture_controller=gesture_controller,
+                        pre_scroll=pre_scroll,
                         screen_w=screen_w,
                         screen_h=screen_h,
+                        virtual_bounds=(minx, miny, maxx, maxy),
                     )
-
-                pre_scroll = gesture_controller.active_scroll_gesture
-                if blended_xy is not None:
-                    result.screen_position = (int(blended_xy[0]), int(blended_xy[1]))
-                gesture_controller.handle_face_analysis(result, now=time.time())
-
-                self._maybe_emit_visualization(
-                    frame_bgr=frame,
-                    result=result,
-                    head_xy=head_xy,
-                    gaze_xy=gaze_xy,
-                    blended_xy=blended_xy,
-                    debug_meta=debug_meta,
-                    gaze_pitch_rad=gaze_pitch_rad,
-                    gaze_yaw_rad=gaze_yaw_rad,
-                    face_patch_bgr=face_patch_bgr,
-                    inference=inference,
-                    gesture_controller=gesture_controller,
-                    pre_scroll=pre_scroll,
-                    screen_w=screen_w,
-                    screen_h=screen_h,
-                    virtual_bounds=(minx, miny, maxx, maxy),
-                )
         finally:
             gesture_controller.shutdown()
-            camera.release()
             head_pipeline.release()
 
     @abstractmethod
